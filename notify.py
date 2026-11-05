@@ -55,8 +55,14 @@ def send(
     chat_id: str | None = None,
     silent: bool = False,
     keyboard: dict | None = None,
-) -> bool:
-    """Send one message. Returns True on success, prints the reason on failure."""
+    reply_to: int | str | None = None,
+) -> int:
+    """Send one message. Returns its message_id, or 0 on failure.
+
+    Truthiness is unchanged for callers that only care whether it worked. The id
+    is what lets a later message be a reply to this one, so the outcome of a
+    signal lands in the same thread as the signal.
+    """
     token, default_chat = _credentials()
     target = chat_id or default_chat
 
@@ -69,6 +75,10 @@ def send(
     }
     if keyboard:
         payload["reply_markup"] = json.dumps(keyboard, ensure_ascii=False)
+    if reply_to:
+        payload["reply_to_message_id"] = str(reply_to)
+        # if the user deleted the signal, still deliver the result
+        payload["allow_sending_without_reply"] = "true"
 
     body = urllib.parse.urlencode(payload).encode()
 
@@ -80,19 +90,19 @@ def send(
             with urllib.request.urlopen(request, timeout=20) as response:
                 result = json.loads(response.read().decode("utf-8"))
             if result.get("ok"):
-                return True
+                return int(result["result"]["message_id"])
             print(f"telegram rejected the message: {result.get('description')}")
-            return False
+            return 0
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             print(f"telegram HTTP {exc.code}: {detail}")
             if exc.code in (400, 401, 403):
-                return False  # retrying will not help
+                return 0  # retrying will not help
         except Exception as exc:  # noqa: BLE001 - network hiccup, retry
             print(f"send attempt {attempt + 1} failed: {exc}")
         time.sleep(2 * (attempt + 1))
 
-    return False
+    return 0
 
 
 DEMO = """🔔 <b>سیگنال آزمایشی</b>

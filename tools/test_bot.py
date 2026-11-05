@@ -392,4 +392,62 @@ with open(beat, "w", encoding="utf-8") as handle:
 print("   stale heartbeat:", bot.last_scan_line())
 assert "عقب است" in bot.last_scan_line()
 
+print("\n--- result replies ---")
+sent = []
+
+
+def fake_send(text, chat_id=None, silent=False, keyboard=None, reply_to=None):
+    sent.append({"chat": chat_id, "text": text, "reply_to": reply_to})
+    return 1000 + len(sent)  # pretend Telegram handed back a message id
+
+
+scanner.send = fake_send
+
+anchors = {
+    OWNER: {"message_id": 501, "risk_usd": 98.0},
+    FRIEND: {"message_id": 777, "risk_usd": 50.0},
+}
+plan = {
+    "symbol": "SOLUSDT",
+    "side": 1,
+    "price": 100.0,
+    "stop_pct": 4.0,
+    "target_pct": 12.0,
+    "candle": "2026-11-05 16:00",
+    "rsi": 55.0,
+}
+fresh_book = {"open": [], "closed": []}
+trade = papertrade.record(fresh_book, plan, anchors)
+assert trade and trade["recipients"] == anchors, "the anchor must survive into the book"
+assert papertrade.record(fresh_book, plan, anchors) is None, "one open trade per symbol"
+
+closed_trade = dict(trade)
+closed_trade.update({"r": 3.0, "reason": "target", "closed": "2026-11-05 20:00", "exit": 112.0})
+
+reply_count = scanner.announce_close(closed_trade, [(OWNER, {}), (FRIEND, {})], do_send=True)
+assert reply_count == 2, reply_count
+assert [m["reply_to"] for m in sent] == [501, 777], "each user gets a reply under their own message"
+assert sent[0]["chat"] == OWNER and sent[1]["chat"] == FRIEND
+assert "+$294" in sent[0]["text"], "3R against $98 risk is +$294"
+assert "+$150" in sent[1]["text"], "3R against $50 risk is +$150"
+print("   replies anchored to:", [m["reply_to"] for m in sent])
+print("   owner text has:", [line for line in sent[0]["text"].splitlines() if "سود/زیان" in line])
+
+sent.clear()
+loser = dict(closed_trade, r=-1.0, reason="stop")
+scanner.announce_close(loser, [(OWNER, {})], do_send=True)
+assert "−$98" in sent[0]["text"], "a loss must print with a minus, not a dash"
+print("   loss line:", [line for line in sent[0]["text"].splitlines() if "سود/زیان" in line])
+
+sent.clear()
+old_trade = {"symbol": "OLDUSDT", "side": -1, "r": 1.0, "reason": "target",
+             "closed": "2026-11-05 20:00"}
+scanner.announce_close(old_trade, [(OWNER, {})], do_send=True)
+assert sent[0]["reply_to"] is None, "a trade with no anchor falls back to a broadcast"
+print("   trade booked before anchors existed: broadcast, not a reply")
+
+sent.clear()
+scanner.announce_close(closed_trade, [], do_send=False)
+assert not sent, "a dry run must not send anything"
+
 print("\nALL ASSERTIONS PASSED")

@@ -215,7 +215,7 @@ def format_message(plan: dict, user: dict | None = None) -> str:
     )
 
 
-def closed_message(trade: dict) -> str:
+def closed_message(trade: dict, risk_usd: float | None = None) -> str:
     reason = {
         "target": "✅ حد سود خورد",
         "stop": "🛑 حد ضرر خورد",
@@ -223,15 +223,52 @@ def closed_message(trade: dict) -> str:
     }.get(trade["reason"], trade["reason"])
     mark = "🟢" if trade["r"] > 0 else "🔴"
     arrow = "▲" if trade["side"] > 0 else "▼"
+
+    money_line = ""
+    if risk_usd:
+        pnl = trade["r"] * risk_usd
+        sign = "+" if pnl >= 0 else "−"
+        money_line = f"<b>سود/زیان تو:</b> {sign}${abs(pnl):,.0f}\n"
+
     return (
         f"{mark} <b>بسته شد — {trade['symbol']}</b> {arrow}\n"
         "───────────────\n"
         f"<b>نتیجه:</b> {reason}\n"
         f"<b>بازده:</b> {trade['r']:+.2f}R\n"
+        f"{money_line}"
         f"<b>کندل بسته:</b> {to_tehran(trade['closed'], 4)} تهران\n"
         "───────────────\n"
         f"{PAPER_BANNER}"
     )
+
+
+def announce_close(trade: dict, recipients: list, do_send: bool = False) -> int:
+    """Reply the outcome under each user's own copy of the signal.
+
+    The anchor is the message_id captured when the signal was delivered, so the
+    result shows up in the same thread and the user does not have to match two
+    separate messages. A trade booked before this existed has no anchor and
+    falls back to a plain broadcast.
+    """
+    anchors = trade.get("recipients") or {}
+
+    if not do_send:
+        print(closed_message(trade).replace("<b>", "").replace("</b>", ""))
+        return 0
+
+    if not anchors:
+        sent = 0
+        for chat_id, _ in recipients:
+            if send(closed_message(trade), chat_id=chat_id):
+                sent += 1
+        return sent
+
+    sent = 0
+    for chat_id, anchor in anchors.items():
+        text = closed_message(trade, anchor.get("risk_usd"))
+        if send(text, chat_id=chat_id, reply_to=anchor.get("message_id")):
+            sent += 1
+    return sent
 
 
 def load_state() -> dict:
@@ -294,9 +331,7 @@ def main(argv: list[str]) -> int:
     papertrade.save(book)
     for trade in closed:
         print(f"  paper {trade['symbol']:<12} {trade['reason']:<8} {trade['r']:+.2f}R")
-        if do_send:
-            for chat_id, _ in recipients:
-                send(closed_message(trade), chat_id=chat_id)
+        announce_close(trade, recipients, do_send)
 
     print("checking market regime...")
     regime = btc_regime()
@@ -356,19 +391,28 @@ def main(argv: list[str]) -> int:
         print(f"  {symbol:<12} SIGNAL {'LONG' if plan['side'] > 0 else 'SHORT'}")
 
         if do_send:
-            delivered = 0
+            anchors: dict[str, dict] = {}
             for chat_id, user in recipients:
-                if send(
+                message_id = send(
                     format_message(plan, user),
                     chat_id=chat_id,
                     keyboard=SIGNAL_KEYBOARD,
-                ):
-                    delivered += 1
+                )
+                if not message_id:
+                    continue
+                size = account.size_for(user, plan["stop_pct"])
+                anchors[chat_id] = {
+                    "message_id": message_id,
+                    "risk_usd": round(size["risk_usd"], 2) if size else None,
+                }
+
+            delivered = len(anchors)
             if delivered:
                 state[symbol] = plan["candle"]
                 save_state(state)
-                # only a signal somebody actually received belongs in the book
-                papertrade.record(book, plan)
+                # only a signal somebody actually received belongs in the book,
+                # and it carries the anchors its result will be replied under
+                papertrade.record(book, plan, anchors)
             else:
                 print(f"  {symbol:<12} nobody received it, will retry next scan")
             print(f"  {symbol:<12} sent to {delivered}/{len(recipients)} user(s)")

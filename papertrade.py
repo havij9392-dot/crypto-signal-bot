@@ -84,8 +84,13 @@ def has_open(book: dict, symbol: str) -> bool:
     return any(trade["symbol"] == symbol for trade in book["open"])
 
 
-def record(book: dict, plan: dict) -> dict | None:
-    """Write a new signal down. Returns None if the symbol already has one open."""
+def record(book: dict, plan: dict, recipients: dict | None = None) -> dict | None:
+    """Write a new signal down. Returns None if the symbol already has one open.
+
+    recipients is {chat_id: {"message_id": id, "risk_usd": dollars}} - the anchor
+    the outcome will be replied under, plus the money that user had at risk. The
+    book is still global; this is only so the reply can be personal.
+    """
     if has_open(book, plan["symbol"]):
         return None
 
@@ -98,6 +103,7 @@ def record(book: dict, plan: dict) -> dict | None:
         "target_pct": float(plan["target_pct"]),
         "opened": plan["candle"],
         "opened_at": _now(),
+        "recipients": dict(recipients or {}),
     }
     book["open"].append(trade)
     return trade
