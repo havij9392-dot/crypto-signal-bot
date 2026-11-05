@@ -2,7 +2,9 @@ name: scan
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Every 30 min is plenty: signals only fire when a 4h candle closes.
+    # It also keeps us far below the 2000 min/month quota on private repos.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
