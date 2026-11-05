@@ -1,0 +1,13 @@
+# Secrets - never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Market data is regenerated on every run, no need to version it
+data/*.csv
+data/manifest.json
+
+# Logs
+logs/*.log

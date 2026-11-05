@@ -1,0 +1,5 @@
+# Phase 1 (data engine) uses only the standard library - no install needed.
+# Phase 2 (backtester) needs these:
+pandas>=2.2
+numpy>=1.26
+requests>=2.31
