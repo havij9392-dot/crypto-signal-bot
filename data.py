@@ -223,13 +223,19 @@ def health_check() -> None:
 
 
 def main(argv: list[str]) -> int:
+    limit = 20
+    if "--top" in argv:
+        position = argv.index("--top")
+        limit = int(argv[position + 1])
+        argv = argv[:position] + argv[position + 2:]
+
     interval = argv[1] if len(argv) > 1 else "4h"
     days = int(argv[2]) if len(argv) > 2 else 730
     wanted = argv[3:] or None
 
     health_check()
 
-    symbols = wanted or top_symbols(limit=20)
+    symbols = wanted or top_symbols(limit=limit)
     print(f"interval={interval} days={days} symbols={len(symbols)}")
 
     manifest = []
