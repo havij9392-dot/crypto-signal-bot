@@ -54,6 +54,13 @@ SL_ATR = 2.5
 RR = 3.0
 MAX_HOLD_BARS = 60       # 10 days on 4h
 
+# Hard ceiling on leverage, chosen by Amir. RR does not affect liquidation -
+# only the stop distance and the leverage do. With a median stop of 8.5%,
+# 10x puts a losing trade at 85% of margin, which is heavy but never liquidated.
+# Anything above 10x gets closed by the exchange before the stop is reached.
+MAX_LEVERAGE = 10
+LIQUIDATION_BUFFER = 0.80   # keep 20% of the liquidation distance unused
+
 MIN_TURNOVER_USD = 3_000_000
 MIN_STOP_PCT = 1.5       # below this the fee eats the edge (see reports/30m_verdict.md)
 
@@ -102,9 +109,10 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
         "target_pct": RR * risk / price * 100,
         "rsi": float(frame["rsi"].iloc[-1]),
         "candle": frame["open_time"].iloc[-1],
-        # liquidation sits at roughly 100/leverage percent, so anything above
-        # this would be stopped out by the exchange before our stop is hit
-        "max_lev": max(1, int(0.8 * 100 / stop_pct)),
+        # safe leverage from the stop distance, then hard-capped at MAX_LEVERAGE
+        "max_lev": max(1, min(MAX_LEVERAGE, int(LIQUIDATION_BUFFER * 100 / stop_pct))),
+        # what a losing trade actually costs on the margin at that leverage
+        "loss_at_max_lev": min(100.0, stop_pct * min(MAX_LEVERAGE, int(LIQUIDATION_BUFFER * 100 / stop_pct))),
     }
 
 
@@ -133,7 +141,7 @@ def format_message(plan: dict) -> str:
         "───────────────\n"
         f"{volume_line}"
         f"کندل ۴ ساعته: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
-        f"اهرم پیشنهادی: حداکثر {plan['max_lev']}× (بالاتر از این، لیکویید می‌شوی)\n"
+        f"اهرم: حداکثر {plan['max_lev']}× · اگر حد ضرر بخورد {plan['loss_at_max_lev']:.0f}٪ مارجین\n"
         f"{thin}"
         "───────────────\n"
         f"{PAPER_BANNER}"
