@@ -43,27 +43,48 @@ API = "https://api.telegram.org/bot{token}/{method}"
 # ---------------------------------------------------------------- transport
 
 
-def _call(method: str, payload: dict) -> dict:
+def _call(method: str, payload: dict, retries: int = 3) -> dict:
     token, _ = _credentials()
     data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        API.format(token=token, method=method),
-        data=data,
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        print(f"telegram HTTP {exc.code} on {method}: {detail}")
-        return {"ok": False, "description": detail}
-    except Exception as exc:  # noqa: BLE001 - network hiccup
-        print(f"{method} failed: {exc}")
-        return {"ok": False, "description": str(exc)}
+    last: dict = {"ok": False}
+
+    for attempt in range(retries):
+        request = urllib.request.Request(
+            API.format(token=token, method=method),
+            data=data,
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            print(f"telegram HTTP {exc.code} on {method}: {detail}")
+            last = {"ok": False, "description": detail}
+            # 429 is a burst limit: several buttons pressed at once. Wait it out.
+            if exc.code == 429:
+                try:
+                    wait = json.loads(detail).get("parameters", {}).get("retry_after", 2)
+                except json.JSONDecodeError:
+                    wait = 2
+                time.sleep(min(10, int(wait) + 1))
+                continue
+            if exc.code in (400, 403):
+                return last  # retrying will not help
+        except Exception as exc:  # noqa: BLE001 - network hiccup
+            print(f"{method} failed: {exc}")
+            last = {"ok": False, "description": str(exc)}
+            time.sleep(1.5 * (attempt + 1))
+
+    return last
 
 
-def send_text(chat_id: str, text: str, keyboard: dict | None = None) -> int | None:
+def send_text(
+    chat_id: str,
+    text: str,
+    keyboard: dict | None = None,
+    reply: dict | None = None,
+) -> int | None:
     payload = {
         "chat_id": str(chat_id),
         "text": text,
@@ -72,6 +93,8 @@ def send_text(chat_id: str, text: str, keyboard: dict | None = None) -> int | No
     }
     if keyboard:
         payload["reply_markup"] = keyboard
+    elif reply:
+        payload["reply_markup"] = reply
     result = _call("sendMessage", payload)
     if result.get("ok"):
         return result["result"]["message_id"]
@@ -158,6 +181,23 @@ def kb_equity() -> dict:
 
 def kb_back(data: str = "m:home") -> dict:
     return {"inline_keyboard": [[b("⬅️ برگشت", data)]]}
+
+
+# The always-visible bar at the bottom of the chat. Inline menus scroll away;
+# this one does not, so the menu is never lost.
+REPLY_MENU = {
+    "keyboard": [
+        [{"text": "☰ منو"}, {"text": "📊 وضعیت"}],
+        [{"text": "💰 سرمایه"}, {"text": "📉 عملکرد"}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+    "input_field_placeholder": "یکی از دکمه‌های پایین را بزن",
+}
+
+MENU_TEXTS = {"☰ منو", "منو", "💰 سرمایه", "📊 وضعیت", "📉 عملکرد"}
+
+BAR_HINT = "\n\n⬇️ دکمه‌های پایین صفحه همیشه در دسترس‌اند؛ «☰ منو» را بزن."
 
 
 def kb_users(data: dict) -> dict:
@@ -588,13 +628,34 @@ def handle_message(message: dict, data: dict) -> None:
                 user = users.get(data, chat_id)
                 user["awaiting"] = "capital"
                 users.save(data)
-                send_text(chat_id, WELCOME.format(name=name), kb_capital())
+                send_text(
+                    chat_id, WELCOME.format(name=name) + BAR_HINT, reply=REPLY_MENU
+                )
+                send_text(chat_id, render_capital(user), kb_capital())
                 notify_owner(data, f"👤 کاربر جدید: <b>{name}</b> (<code>{chat_id}</code>)")
                 return
         send_text(chat_id, DENIED)
         return
 
     admin = users.is_admin(data, chat_id)
+
+    # ------------------------------------------------- the bottom bar buttons
+    if text in MENU_TEXTS:
+        if user.get("awaiting"):
+            user["awaiting"] = None
+            users.save(data)
+
+        # The bar is already installed on the client, so these replies carry the
+        # inline menu instead. Telegram allows only one reply_markup per message.
+        if text == "📊 وضعیت":
+            send_text(chat_id, account.describe(user), kb_back())
+        elif text == "💰 سرمایه":
+            send_text(chat_id, render_capital(user), kb_capital())
+        elif text == "📉 عملکرد":
+            send_text(chat_id, render_performance(), kb_back())
+        else:
+            send_text(chat_id, render_home(user, admin), kb_main(user, admin))
+        return
 
     # ---------------------------------------------------- waiting for a number
     awaiting = user.get("awaiting")
@@ -623,11 +684,17 @@ def handle_message(message: dict, data: dict) -> None:
     if lowered.startswith("/start") or lowered.startswith("/menu"):
         capital = float(user.get("capital") or 0)
         if capital <= 0:
-            send_text(chat_id, WELCOME.format(name=user.get("name", "کاربر")), kb_capital())
+            send_text(
+                chat_id,
+                WELCOME.format(name=user.get("name", "کاربر")) + BAR_HINT,
+                reply=REPLY_MENU,
+            )
+            send_text(chat_id, render_capital(user), kb_capital())
             user["awaiting"] = "capital"
             users.save(data)
             return
-        send_text(chat_id, render_home(user, admin), kb_main(user, admin))
+        send_text(chat_id, render_home(user, admin) + BAR_HINT, reply=REPLY_MENU)
+        send_text(chat_id, "منوی کامل:", kb_main(user, admin))
         return
 
     if lowered.startswith("/capital"):

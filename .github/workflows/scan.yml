@@ -3,8 +3,9 @@ name: scan
 on:
   schedule:
     # Signals only fire when a 4h candle closes, so every 30 min is generous.
-    # The scanner is idempotent: a signal is sent once per candle close.
-    - cron: "*/30 * * * *"
+    # Offset from :00/:30 so the scan and the bot listener do not fight for a
+    # runner at the same minute.
+    - cron: "5,35 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -40,6 +41,7 @@ jobs:
         run: python scanner.py --send
 
       - name: Persist sent-signal state
+        if: always()
         run: |
           if [ -z "$(git status --porcelain state/)" ]; then
             echo "no new signals, state unchanged"

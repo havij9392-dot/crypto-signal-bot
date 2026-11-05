@@ -2,10 +2,12 @@ name: bot
 
 on:
   schedule:
-    # Telegram needs someone listening. Actions cannot hold a process forever,
-    # so the bot wakes up every 5 minutes and listens for ~4.5 of them.
-    # Expect a reply within 5-15 minutes - GitHub often delays short crons.
-    - cron: "*/5 * * * *"
+    # Actions cannot hold a process forever, so each run listens for 20 minutes
+    # and the schedule re-arms it. A short 5-minute cron was tried first and
+    # GitHub dropped most of the runs, so button presses sat unanswered for
+    # hours: a long window per run covers far more time than many tiny ones.
+    # The 10-minute gap absorbs GitHub's scheduling jitter without queueing.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +23,7 @@ concurrency:
 jobs:
   listen:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 28
 
     steps:
       - uses: actions/checkout@v4
@@ -38,9 +40,12 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python bot.py 270
+        # 1200s of listening inside a 28-minute job: the remaining minutes are
+        # the margin that guarantees the commit below always runs.
+        run: python bot.py 1200
 
       - name: Persist account settings
+        if: always()
         run: |
           if [ -z "$(git status --porcelain state/)" ]; then
             echo "no changes"

@@ -39,14 +39,18 @@ os.environ["TELEGRAM_CHAT_ID"] = OWNER
 calls = []
 LAST = {}
 PER_CHAT = {}
+BAR = {}
 
 
 def fake_call(method, payload):
     calls.append((method, payload))
     if method in ("sendMessage", "editMessageText"):
+        markup = payload.get("reply_markup")
         LAST["text"] = payload.get("text", "")
-        LAST["keyboard"] = payload.get("reply_markup")
-        PER_CHAT[str(payload.get("chat_id"))] = (LAST["text"], LAST["keyboard"])
+        LAST["keyboard"] = markup
+        PER_CHAT[str(payload.get("chat_id"))] = (LAST["text"], markup)
+        if isinstance(markup, dict) and "keyboard" in markup:
+            BAR[str(payload.get("chat_id"))] = markup
     if method == "getMe":
         return {"ok": True, "result": {"username": "zakaisignal_bot"}}
     return {"ok": True, "result": {"message_id": 1}}
@@ -118,10 +122,29 @@ data["users"][OWNER]["peak"] = 1000.0
 
 print("\n--- owner menu ---")
 text = msg(OWNER, "/start")
-show("owner /start", text)
-assert "منوی اصلی" in text
-print("   keyboard rows:", rows(LAST["keyboard"]))
+show("owner /start (inline menu)", text)
+assert "منوی اصلی" in LAST["text"] or "منوی کامل" in LAST["text"]
 assert rows(LAST["keyboard"]) == [2, 2, 2, 1, 2], rows(LAST["keyboard"])
+
+print("\n--- persistent bottom bar ---")
+assert OWNER in BAR, "the menu must also be pinned to the bottom of the chat"
+labels = [btn["text"] for row in BAR[OWNER]["keyboard"] for btn in row]
+print("   bottom bar:", labels)
+assert "☰ منو" in labels
+assert BAR[OWNER].get("is_persistent") is True
+
+text = msg(OWNER, "☰ منو")
+assert "منوی اصلی" in text, "the ☰ منو button must reopen the menu"
+assert rows(LAST["keyboard"]) == [2, 2, 2, 1, 2]
+
+text = msg(OWNER, "📊 وضعیت")
+assert "سرمایه فعلی" in text
+
+text = msg(OWNER, "💰 سرمایه")
+assert "💰 سرمایه" in text
+
+text = msg(OWNER, "📉 عملکرد")
+assert "عملکرد پیپر" in text
 
 print("\n--- invite flow ---")
 text = cb(OWNER, "adm:invite")
@@ -139,9 +162,10 @@ welcome, welcome_kb = PER_CHAT[FRIEND]
 show("friend redeems the code", welcome)
 assert FRIEND in data["users"]
 assert data["invites"][code]["used_by"] == FRIEND
-assert "سلام" in welcome
+assert FRIEND in BAR, "a new user must get the bottom bar"
+assert "💰 سرمایه" in welcome, "a new user starts on the capital menu"
+assert rows(welcome_kb) == [2, 2, 1, 1], rows(welcome_kb)
 assert "کاربر جدید" in LAST["text"], "the owner must be told somebody joined"
-assert rows(welcome_kb) == [2, 2, 1, 1], "a new user starts on the capital keyboard"
 
 text = msg(STRANGER, f"/start {code}", first_name="غریبه")
 assert "خصوصی" in text, "an invite is single use"
