@@ -31,7 +31,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from config import MAX_HOLD_BARS
+from config import MAX_HOLD_BARS, to_tehran
 from okx import fetch_klines
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +44,14 @@ LOOKBACK_DAYS = 60          # enough for a 10-day trade plus slack
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
+def when_tehran(stamp: str | None) -> str:
+    """Candle stamps are UTC at the bar's open, so +4h lands on its close."""
+    if not stamp:
+        return "?"
+    text = to_tehran(stamp, 4)
+    return text[5:] if len(text) >= 16 else text
 
 
 def load() -> dict:
@@ -234,11 +242,14 @@ def summary(book: dict) -> str:
     recent = book.get("closed", [])[-5:]
     if recent:
         lines.append("───────────────")
-        lines.append("<b>۵ معامله آخر:</b>")
+        lines.append("<b>۵ معامله آخر:</b> <i>به وقت تهران</i>")
         for trade in reversed(recent):
             mark = "🟢" if trade["r"] > 0 else "🔴"
             arrow = "▲" if trade["side"] > 0 else "▼"
-            lines.append(f"{mark} {trade['symbol']} {arrow} {trade['r']:+.2f}R")
+            lines.append(
+                f"{mark} {trade['symbol']} {arrow} {trade['r']:+.2f}R"
+                f" · {when_tehran(trade.get('closed'))}"
+            )
 
     open_trades = book.get("open", [])
     if open_trades:
@@ -246,7 +257,10 @@ def summary(book: dict) -> str:
         lines.append("<b>باز:</b>")
         for trade in open_trades[:5]:
             arrow = "▲" if trade["side"] > 0 else "▼"
-            lines.append(f"• {trade['symbol']} {arrow} از {trade['entry']:,.6g}")
+            lines.append(
+                f"• {trade['symbol']} {arrow} از {trade['entry']:,.6g}"
+                f" · {when_tehran(trade.get('opened'))}"
+            )
         if len(open_trades) > 5:
             lines.append(f"• و {len(open_trades) - 5} معامله دیگر")
     return "\n".join(lines)

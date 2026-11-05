@@ -17,6 +17,7 @@ import account
 import bot
 import papertrade
 import users
+from config import to_tehran
 
 OWNER = "6090974409"
 FRIEND = "777000111"
@@ -325,10 +326,10 @@ print("\n--- book stats ---")
 book = {
     "open": [],
     "closed": [
-        {"symbol": "A", "side": 1, "r": 3.0, "reason": "target"},
-        {"symbol": "B", "side": 1, "r": -1.0, "reason": "stop"},
-        {"symbol": "C", "side": -1, "r": -1.0, "reason": "stop"},
-        {"symbol": "D", "side": 1, "r": 3.0, "reason": "target"},
+        {"symbol": "A", "side": 1, "r": 3.0, "reason": "target", "closed": "2026-11-05 00:00"},
+        {"symbol": "B", "side": 1, "r": -1.0, "reason": "stop", "closed": "2026-11-05 04:00"},
+        {"symbol": "C", "side": -1, "r": -1.0, "reason": "stop", "closed": "2026-11-05 08:00"},
+        {"symbol": "D", "side": 1, "r": 3.0, "reason": "target", "closed": "2026-11-05 16:00"},
     ],
 }
 s = papertrade.stats(book)
@@ -336,7 +337,19 @@ assert s["trades"] == 4 and s["wins"] == 2 and s["losses"] == 2
 assert abs(s["sum_r"] - 4.0) < 1e-9
 assert abs(s["pf"] - 3.0) < 1e-9
 print("   stats:", s)
-print(plain(papertrade.summary(book)))
+summary_text = plain(papertrade.summary(book))
+print(summary_text)
+# 16:00 UTC candle closes at 20:00 UTC = 23:30 in Tehran
+assert "23:30" in summary_text, "closed trades must be shown in Tehran time"
+assert "19:30" not in summary_text, "a UTC stamp must never leak into the display"
+
+print("\n--- timezone ---")
+assert to_tehran("2026-11-05 16:00") == "2026-11-05 19:30"
+assert to_tehran("2026-11-05 16:00", 4) == "2026-11-05 23:30"
+assert to_tehran("2026-11-05T20:33:20Z") == "2026-11-06 00:03", "ISO stamps roll over midnight"
+assert to_tehran("") == "" and to_tehran("nonsense") == "nonsense"
+print("   candle 16:00 UTC closes", to_tehran("2026-11-05 16:00", 4), "Tehran")
+print("   joined stamp", to_tehran("2026-11-05T20:33:20Z"), "Tehran")
 
 print("\n--- late signals and heartbeat ---")
 import pandas as pd

@@ -49,6 +49,7 @@ from config import (
     RR,
     SL_ATR,
     WORKERS,
+    to_tehran,
 )
 from features import add_all
 from notify import send
@@ -205,7 +206,8 @@ def format_message(plan: dict, user: dict | None = None) -> str:
         f"<b>حد سود:</b> +{plan['target_pct']:.2f}٪\n"
         "───────────────\n"
         f"{volume_line}"
-        f"کندل ۴ ساعته: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
+        f"کندل ۴ ساعته بسته‌شده در <b>{to_tehran(plan['candle'], 4)}</b> تهران"
+        f" · RSI {plan['rsi']:.0f}\n"
         f"{sizing_block(plan, user)}"
         f"{thin}"
         "───────────────\n"
@@ -226,6 +228,7 @@ def closed_message(trade: dict) -> str:
         "───────────────\n"
         f"<b>نتیجه:</b> {reason}\n"
         f"<b>بازده:</b> {trade['r']:+.2f}R\n"
+        f"<b>کندل بسته:</b> {to_tehran(trade['closed'], 4)} تهران\n"
         "───────────────\n"
         f"{PAPER_BANNER}"
     )

@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 import account
 import papertrade
 import users
+from config import to_tehran
 from notify import _credentials
 
 API = "https://api.telegram.org/bot{token}/{method}"
@@ -305,6 +306,9 @@ HELP_TEXT = (
     "بزرگ‌تر می‌شود.\n\n"
     "<b>📉 عملکرد</b> — کارنامه واقعی استراتژی روی سیگنال‌های ارسال‌شده.\n\n"
     "<b>🔔 سیگنال‌ها</b> — روشن یا خاموش کردن دریافت سیگنال.\n\n"
+    "<b>⏰ زمان‌ها</b> — کندل ۴ ساعته روی ساعت ۰۰ / ۰۴ / ۰۸ / ۱۲ / ۱۶ / ۲۰ UTC بسته "
+    "می‌شود، یعنی <b>۰۳:۳۰ / ۰۷:۳۰ / ۱۱:۳۰ / ۱۵:۳۰ / ۱۹:۳۰ / ۲۳:۳۰</b> به وقت تهران. "
+    "هر ساعتی که در پیام‌ها می‌بینی به وقت تهران است.\n\n"
     "<b>اهرم</b> — از فاصله حد ضرر حساب می‌شود و هرگز از ۱۰× بالاتر نمی‌رود، "
     "پس حد ضرر همیشه قبل از لیکویید می‌خورد."
 )
@@ -490,7 +494,7 @@ def render_user_detail(data: dict, chat_id: str) -> str:
         f"<b>سرمایه:</b> {money(float(user.get('capital') or 0))}",
         f"<b>ریسک:</b> {risk_pct * 100:.2f}٪" + (" 🔻ترمز افت" if braked else ""),
         f"<b>سیگنال:</b> {'روشن' if user.get('signals', True) else 'خاموش'}",
-        f"<b>عضویت:</b> {user.get('joined', '?')}",
+        f"<b>عضویت:</b> {to_tehran(user.get('joined') or '') or '?'} <i>تهران</i>",
     ]
     return "\n".join(lines)
 
