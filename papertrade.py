@@ -252,8 +252,9 @@ def summary(book: dict) -> str:
         for trade in reversed(recent):
             mark = "🟢" if trade["r"] > 0 else "🔴"
             arrow = "▲" if trade["side"] > 0 else "▼"
+            r_text = f"{trade['r']:+.2f}R".replace("-", "−")
             lines.append(
-                f"{mark} {trade['symbol']} {arrow} {trade['r']:+.2f}R"
+                f"{mark} {trade['symbol']} {arrow} {r_text}"
                 f" · {when_tehran(trade.get('closed'))}"
             )
 

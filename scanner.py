@@ -230,11 +230,13 @@ def closed_message(trade: dict, risk_usd: float | None = None) -> str:
         sign = "+" if pnl >= 0 else "−"
         money_line = f"<b>سود/زیان تو:</b> {sign}${abs(pnl):,.0f}\n"
 
+    r_text = f"{trade['r']:+.2f}R".replace("-", "−")
+
     return (
         f"{mark} <b>بسته شد — {trade['symbol']}</b> {arrow}\n"
         "───────────────\n"
         f"<b>نتیجه:</b> {reason}\n"
-        f"<b>بازده:</b> {trade['r']:+.2f}R\n"
+        f"<b>بازده:</b> {r_text}\n"
         f"{money_line}"
         f"<b>کندل بسته:</b> {to_tehran(trade['closed'], 4)} تهران\n"
         "───────────────\n"
