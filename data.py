@@ -49,6 +49,9 @@ NON_CRYPTO = {
     "GOOGL", "AAPL", "TSLA", "NVDA", "MSFT", "AMZN", "META", "NFLX", "AMD",
     "INTC", "COIN", "MSTR", "PLTR", "CRCL", "BABA", "TSM", "ORCL", "IBM",
     "XAU", "XAG", "XPT", "XPD", "CL", "BZ", "NG", "COPPER",
+    # ETFs and index products
+    "QQQ", "SPY", "VOO", "IWM", "DIA", "TQQQ", "SQQQ", "ARKK",
+    "GLD", "SLV", "USO", "UNG", "EEM", "FXI",
 }
 
 CSV_HEADER = [
