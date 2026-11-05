@@ -1,0 +1,143 @@
+{
+  "generated_at": "2026-11-05T15:32:33.320917+00:00",
+  "symbols": 20,
+  "cost_model": {
+    "fee_per_side": 0.0005,
+    "slippage_per_side": 0.0002,
+    "funding_per_8h": 0.0001
+  },
+  "trade_model": {
+    "sl_atr": 2.0,
+    "rr": 2.0,
+    "max_hold_bars": 30
+  },
+  "split_time": "2026-03-31 12:00",
+  "results": [
+    {
+      "label": "ema_cross | all",
+      "trades": 938,
+      "win_rate": 43.8,
+      "profit_factor": 1.15,
+      "expectancy_pct": 0.448,
+      "avg_r": 0.08,
+      "total_return_pct": 468.4,
+      "max_drawdown_pct": -97.7,
+      "avg_bars": 16.0,
+      "max_loss_streak": 23,
+      "stop_hits": 477,
+      "target_hits": 245
+    },
+    {
+      "label": "ema_cross | IS",
+      "trades": 665,
+      "win_rate": 44.8,
+      "profit_factor": 1.23,
+      "expectancy_pct": 0.676,
+      "avg_r": 0.11,
+      "total_return_pct": 1189.7,
+      "max_drawdown_pct": -95.4,
+      "avg_bars": 16.4,
+      "max_loss_streak": 23,
+      "stop_hits": 334,
+      "target_hits": 180
+    },
+    {
+      "label": "ema_cross | OOS",
+      "trades": 273,
+      "win_rate": 41.4,
+      "profit_factor": 0.96,
+      "expectancy_pct": -0.107,
+      "avg_r": -0.01,
+      "total_return_pct": -55.9,
+      "max_drawdown_pct": -76.2,
+      "avg_bars": 14.8,
+      "max_loss_streak": 11,
+      "stop_hits": 143,
+      "target_hits": 65
+    },
+    {
+      "label": "rsi_pullback | all",
+      "trades": 520,
+      "win_rate": 46.7,
+      "profit_factor": 1.54,
+      "expectancy_pct": 1.418,
+      "avg_r": 0.19,
+      "total_return_pct": 33567.5,
+      "max_drawdown_pct": -60.2,
+      "avg_bars": 16.2,
+      "max_loss_streak": 13,
+      "stop_hits": 245,
+      "target_hits": 152
+    },
+    {
+      "label": "rsi_pullback | IS",
+      "trades": 388,
+      "win_rate": 50.0,
+      "profit_factor": 1.75,
+      "expectancy_pct": 1.928,
+      "avg_r": 0.28,
+      "total_return_pct": 49559.4,
+      "max_drawdown_pct": -58.1,
+      "avg_bars": 16.1,
+      "max_loss_streak": 12,
+      "stop_hits": 174,
+      "target_hits": 122
+    },
+    {
+      "label": "rsi_pullback | OOS",
+      "trades": 132,
+      "win_rate": 37.1,
+      "profit_factor": 0.97,
+      "expectancy_pct": -0.081,
+      "avg_r": -0.06,
+      "total_return_pct": -32.2,
+      "max_drawdown_pct": -60.2,
+      "avg_bars": 16.5,
+      "max_loss_streak": 12,
+      "stop_hits": 71,
+      "target_hits": 30
+    },
+    {
+      "label": "breakout | all",
+      "trades": 1816,
+      "win_rate": 39.9,
+      "profit_factor": 0.94,
+      "expectancy_pct": -0.212,
+      "avg_r": 0.01,
+      "total_return_pct": -100.0,
+      "max_drawdown_pct": -100.0,
+      "avg_bars": 15.5,
+      "max_loss_streak": 32,
+      "stop_hits": 953,
+      "target_hits": 439
+    },
+    {
+      "label": "breakout | IS",
+      "trades": 1226,
+      "win_rate": 40.3,
+      "profit_factor": 0.96,
+      "expectancy_pct": -0.138,
+      "avg_r": 0.03,
+      "total_return_pct": -99.8,
+      "max_drawdown_pct": -100.0,
+      "avg_bars": 16.0,
+      "max_loss_streak": 26,
+      "stop_hits": 639,
+      "target_hits": 312
+    },
+    {
+      "label": "breakout | OOS",
+      "trades": 590,
+      "win_rate": 39.2,
+      "profit_factor": 0.88,
+      "expectancy_pct": -0.367,
+      "avg_r": -0.04,
+      "total_return_pct": -97.3,
+      "max_drawdown_pct": -98.7,
+      "avg_bars": 14.4,
+      "max_loss_streak": 16,
+      "stop_hits": 314,
+      "target_hits": 127
+    }
+  ]
+}
