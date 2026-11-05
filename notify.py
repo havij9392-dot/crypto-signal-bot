@@ -50,24 +50,33 @@ def _credentials() -> tuple[str, str]:
     return token, chat_id
 
 
-def send(text: str, chat_id: str | None = None, silent: bool = False) -> bool:
+def send(
+    text: str,
+    chat_id: str | None = None,
+    silent: bool = False,
+    keyboard: dict | None = None,
+) -> bool:
     """Send one message. Returns True on success, prints the reason on failure."""
     token, default_chat = _credentials()
     target = chat_id or default_chat
 
-    payload = urllib.parse.urlencode(
-        {
-            "chat_id": target,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": "true",
-            "disable_notification": "true" if silent else "false",
-        }
-    ).encode()
+    payload = {
+        "chat_id": target,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
+        "disable_notification": "true" if silent else "false",
+    }
+    if keyboard:
+        payload["reply_markup"] = json.dumps(keyboard, ensure_ascii=False)
+
+    body = urllib.parse.urlencode(payload).encode()
 
     for attempt in range(3):
         try:
-            request = urllib.request.Request(API.format(token=token, method="sendMessage"), data=payload)
+            request = urllib.request.Request(
+                API.format(token=token, method="sendMessage"), data=body
+            )
             with urllib.request.urlopen(request, timeout=20) as response:
                 result = json.loads(response.read().decode("utf-8"))
             if result.get("ok"):
@@ -75,8 +84,8 @@ def send(text: str, chat_id: str | None = None, silent: bool = False) -> bool:
             print(f"telegram rejected the message: {result.get('description')}")
             return False
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            print(f"telegram HTTP {exc.code}: {body}")
+            detail = exc.read().decode("utf-8", errors="replace")
+            print(f"telegram HTTP {exc.code}: {detail}")
             if exc.code in (400, 401, 403):
                 return False  # retrying will not help
         except Exception as exc:  # noqa: BLE001 - network hiccup, retry

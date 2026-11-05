@@ -1,26 +1,26 @@
 """
-The interactive side of the bot.
+Interactive side of the bot.
 
-The scanner only pushes signals. This module lets Amir talk back: a button asks
-how much capital he is starting with, and from then on every signal is sized
-from that number.
+Everything is a button - nothing has to be typed. Menus are edited in place, so
+the chat does not fill up with dead keyboards.
 
-Commands
-    /start          welcome, plus the capital keyboard
-    /capital        change the capital (deposit or withdrawal); resets the peak
-    /equity 1250    update the live balance after P&L; keeps the peak
-    /risk 0.5       risk per trade, in percent
-    /status         what the bot currently thinks
-    /help           this list
+The bot serves a small private group. The owner (TELEGRAM_CHAT_ID) opens the
+admin panel, mints an invite link, and whoever opens that link gets their own
+capital, risk and signal settings. Signals are broadcast to everyone, sized from
+each person's own capital.
 
-The keyboard uses callback queries, so nothing is typed for the common case.
+Commands still work as shortcuts, but they are optional:
 
-Runs for a fixed window then exits, because it is meant to be started by a
-cron job rather than kept alive forever.
+    /start [code]   open the menu, or redeem an invite code
+    /menu           same as /start without a code
+    /capital 1000   shortcut for the capital button
+    /equity 1250    shortcut for the balance button
+    /risk 1         shortcut for the risk button
+    /stats          paper-trading record
+    /help           what everything does
 
-Usage:
-    python bot.py            # poll for 240 seconds
-    python bot.py 60         # shorter window
+Runs for a fixed window then exits, because it is started by a cron job rather
+than kept alive forever.
 """
 
 from __future__ import annotations
@@ -33,55 +33,14 @@ import urllib.error
 import urllib.request
 
 import account
+import papertrade
+import users
 from notify import _credentials
 
 API = "https://api.telegram.org/bot{token}/{method}"
 
-WELCOME = (
-    "سلام امیر ⚡\n\n"
-    "برای شروع بگو با چه سرمایه‌ای می‌خواهی کار کنی.\n"
-    "بعد از آن، هر سیگنال با حجم، مارجین و اهرم مخصوص همان سرمایه می‌آید.\n\n"
-    "هر وقت سرمایه کم یا زیاد شد، از /capital یا /equity تغییرش بده."
-)
 
-CAPITAL_KEYBOARD = {
-    "inline_keyboard": [
-        [
-            {"text": "۵۰۰ دلار", "callback_data": "cap:500"},
-            {"text": "۱٬۰۰۰ دلار", "callback_data": "cap:1000"},
-        ],
-        [
-            {"text": "۲٬۰۰۰ دلار", "callback_data": "cap:2000"},
-            {"text": "۵٬۰۰۰ دلار", "callback_data": "cap:5000"},
-        ],
-        [{"text": "✏️ مقدار دیگر", "callback_data": "cap:custom"}],
-    ]
-}
-
-EQUITY_KEYBOARD = {
-    "inline_keyboard": [
-        [{"text": "✏️ موجودی جدید", "callback_data": "eq:custom"}],
-        [{"text": "♻️ بازنشانی اوج به موجودی فعلی", "callback_data": "eq:reset_peak"}],
-    ]
-}
-
-HELP = (
-    "<b>دستورها</b>\n"
-    "───────────────\n"
-    "/capital — تغییر سرمایه (واریز یا برداشت)\n"
-    "/equity — به‌روز کردن موجودی بعد از سود یا زیان\n"
-    "/risk 0.5 — ریسک هر معامله به درصد\n"
-    "/status — وضعیت فعلی\n"
-    "/help — همین لیست\n"
-    "───────────────\n"
-    "<b>فرق /capital و /equity:</b>\n"
-    "‏/capital اوج حساب را هم روی عدد جدید می‌گذارد، پس پولی که برداشت کردی "
-    "به‌عنوان ضرر حساب نمی‌شود.\n"
-    "‏/equity اوج را نگه می‌دارد، تا ترمز افت بتواند ضرر واقعی را ببیند."
-)
-
-CAPITAL_ASK = "سرمایه‌ات چقدر است؟ (واریز یا برداشت)"
-EQUITY_ASK = "موجودی فعلی‌ات چقدر است؟"
+# ---------------------------------------------------------------- transport
 
 
 def _call(method: str, payload: dict) -> dict:
@@ -96,28 +55,176 @@ def _call(method: str, payload: dict) -> dict:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        print(f"telegram HTTP {exc.code} on {method}: {body}")
-        return {"ok": False}
+        detail = exc.read().decode("utf-8", errors="replace")
+        print(f"telegram HTTP {exc.code} on {method}: {detail}")
+        return {"ok": False, "description": detail}
     except Exception as exc:  # noqa: BLE001 - network hiccup
         print(f"{method} failed: {exc}")
-        return {"ok": False}
+        return {"ok": False, "description": str(exc)}
 
 
-def reply(chat_id: str, text: str, keyboard: dict | None = None) -> None:
+def send_text(chat_id: str, text: str, keyboard: dict | None = None) -> int | None:
     payload = {
-        "chat_id": chat_id,
+        "chat_id": str(chat_id),
         "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }
     if keyboard:
         payload["reply_markup"] = keyboard
-    _call("sendMessage", payload)
+    result = _call("sendMessage", payload)
+    if result.get("ok"):
+        return result["result"]["message_id"]
+    return None
+
+
+def show(
+    chat_id: str, text: str, keyboard: dict | None = None, message_id: int | None = None
+) -> None:
+    """Edit the menu in place when possible, otherwise send a fresh one."""
+    if message_id:
+        payload = {
+            "chat_id": str(chat_id),
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if keyboard:
+            payload["reply_markup"] = keyboard
+        result = _call("editMessageText", payload)
+        if result.get("ok"):
+            return
+        if "message is not modified" in (result.get("description") or ""):
+            return
+    send_text(chat_id, text, keyboard)
+
+
+# -------------------------------------------------------------------- menus
+
+
+def b(text: str, data: str) -> dict:
+    return {"text": text, "callback_data": data}
+
+
+def kb_main(user: dict, admin: bool) -> dict:
+    on = user.get("signals", True)
+    rows = [
+        [b("💰 سرمایه", "m:cap"), b("📊 وضعیت", "m:status")],
+        [b("⚙️ ریسک", "m:risk"), b("📈 موجودی", "m:eq")],
+        [b("📉 عملکرد", "m:perf"), b("❓ راهنما", "m:help")],
+        [b(f"🔔 سیگنال‌ها: {'روشن' if on else 'خاموش'}", "sig:toggle")],
+    ]
+    if admin:
+        rows.append([b("👥 کاربران", "adm:users"), b("🔗 دعوت", "adm:invite")])
+    return {"inline_keyboard": rows}
+
+
+def kb_capital() -> dict:
+    return {
+        "inline_keyboard": [
+            [b("۵۰۰ دلار", "cap:500"), b("۱٬۰۰۰ دلار", "cap:1000")],
+            [b("۲٬۰۰۰ دلار", "cap:2000"), b("۵٬۰۰۰ دلار", "cap:5000")],
+            [b("✏️ مقدار دیگر", "cap:custom")],
+            [b("⬅️ برگشت", "m:home")],
+        ]
+    }
+
+
+def kb_risk() -> dict:
+    return {
+        "inline_keyboard": [
+            [
+                b("۰٫۵٪", "risk:0.5"),
+                b("۱٪", "risk:1"),
+                b("۱٫۵٪", "risk:1.5"),
+                b("۲٪", "risk:2"),
+            ],
+            [b("✏️ مقدار دیگر", "risk:custom")],
+            [b("⬅️ برگشت", "m:home")],
+        ]
+    }
+
+
+def kb_equity() -> dict:
+    return {
+        "inline_keyboard": [
+            [b("✏️ موجودی جدید", "eq:custom")],
+            [b("♻️ بازنشانی اوج", "eq:reset_peak")],
+            [b("⬅️ برگشت", "m:home")],
+        ]
+    }
+
+
+def kb_back(data: str = "m:home") -> dict:
+    return {"inline_keyboard": [[b("⬅️ برگشت", data)]]}
+
+
+def kb_users(data: dict) -> dict:
+    rows = []
+    for chat_id, user in data["users"].items():
+        tag = " 👑" if chat_id == str(data.get("owner")) else ""
+        capital = float(user.get("capital") or 0)
+        rows.append([b(f"{user.get('name', '?')}{tag} — ${capital:,.0f}", f"adm:u:{chat_id}")])
+    rows.append([b("🔗 دعوت", "adm:invite"), b("⬅️ برگشت", "m:home")])
+    return {"inline_keyboard": rows}
+
+
+# --------------------------------------------------------------------- text
+
+
+HOME_TEXT = (
+    "<b>منوی اصلی</b>\n"
+    "───────────────\n"
+    "هر کاری لازم داری از همین دکمه‌ها انجام بده.\n"
+    "هیچ دستوری لازم نیست تایپ کنی."
+)
+
+HELP_TEXT = (
+    "<b>راهنما</b>\n"
+    "───────────────\n"
+    "<b>💰 سرمایه</b> — وقتی پول واریز یا برداشت می‌کنی. اوج حساب هم روی عدد جدید می‌رود، "
+    "پس برداشت به‌عنوان ضرر حساب نمی‌شود.\n\n"
+    "<b>📈 موجودی</b> — وقتی موجودی با سود یا زیان معاملات عوض شده. اوج حساب دست‌نخورده "
+    "می‌ماند تا ترمز افت افت واقعی را ببیند.\n\n"
+    "<b>⚙️ ریسک</b> — درصدی از سرمایه که در هر معامله خطر می‌کنی. ۱٪ نقطه شروع خوبی است.\n\n"
+    "<b>📉 عملکرد</b> — کارنامه واقعی استراتژی روی سیگنال‌های ارسال‌شده.\n\n"
+    "<b>🔔 سیگنال‌ها</b> — روشن یا خاموش کردن دریافت سیگنال.\n\n"
+    "<b>اهرم</b> — از فاصله حد ضرر حساب می‌شود و هرگز از ۱۰× بالاتر نمی‌رود، "
+    "پس حد ضرر همیشه قبل از لیکویید می‌خورد."
+)
+
+DENIED = (
+    "این ربات خصوصی است.\n"
+    "برای دسترسی، از سازنده‌اش لینک دعوت بگیر و روی همان لینک بزن."
+)
+
+WELCOME = (
+    "سلام {name} ⚡\n"
+    "───────────────\n"
+    "من سیگنال‌های فیوچرز را روی تایم‌فریم ۴ ساعته می‌فرستم و برای هر سیگنال، "
+    "حجم، اهرم و مارجین مخصوص سرمایه خودت را حساب می‌کنم.\n\n"
+    "اول سرمایه‌ات را بگو، بعد بقیه‌اش با دکمه."
+)
+
+
+def money(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+# ---------------------------------------------------------------- utilities
 
 
 def parse_amount(text: str) -> float | None:
-    cleaned = text.replace(",", "").replace("٬", "").replace("$", "").replace("دلار", "").strip()
+    cleaned = (
+        text.replace(",", "")
+        .replace("٬", "")
+        .replace("$", "")
+        .replace("٪", "")
+        .replace("%", "")
+        .replace("دلار", "")
+        .strip()
+    )
     match = re.search(r"\d+(?:\.\d+)?", cleaned)
     if not match:
         return None
@@ -125,50 +232,318 @@ def parse_amount(text: str) -> float | None:
     return value if value > 0 else None
 
 
+def remember_bot_username(data: dict) -> None:
+    if data.get("bot_username"):
+        return
+    result = _call("getMe", {})
+    if result.get("ok"):
+        data["bot_username"] = result["result"].get("username", "")
+        users.save(data)
+
+
+def notify_owner(data: dict, text: str) -> None:
+    owner = data.get("owner")
+    if owner:
+        send_text(owner, text)
+
+
+# ---------------------------------------------------------------- rendering
+
+
+def render_home(user: dict, admin: bool) -> str:
+    capital = float(user.get("capital") or 0)
+    risk_pct, braked = account.effective_risk(user)
+    line = f"<b>{user.get('name', 'کاربر')}</b>"
+    if capital > 0:
+        line += (
+            f" · {money(capital)} · ریسک {risk_pct * 100:.2f}٪"
+            + (" 🔻ترمز افت" if braked else "")
+        )
+    else:
+        line += " · سرمایه ثبت نشده"
+    return f"{HOME_TEXT}\n───────────────\n{line}"
+
+
+def render_capital(user: dict) -> str:
+    capital = float(user.get("capital") or 0)
+    current = money(capital) if capital > 0 else "ثبت نشده"
+    return (
+        "<b>💰 سرمایه</b>\n"
+        "───────────────\n"
+        f"<b>فعلی:</b> {current}\n\n"
+        "این را وقتی عوض کن که پول <b>واریز یا برداشت</b> می‌کنی.\n"
+        "اوج حساب هم روی عدد جدید می‌رود، پس برداشت ضرر حساب نمی‌شود.\n\n"
+        "یک دکمه بزن یا عدد را تایپ کن."
+    )
+
+
+def render_risk(user: dict) -> str:
+    risk_pct, braked = account.effective_risk(user)
+    base = float(user.get("risk_pct") or 1.0)
+    capital = float(user.get("capital") or 0)
+    body = "<b>⚙️ ریسک هر معامله</b>\n───────────────\n" f"<b>تنظیم‌شده:</b> {base:.2f}٪\n"
+    if braked:
+        body += f"<b>الان:</b> {risk_pct * 100:.2f}٪ (ترمز افت فعال)\n"
+    if capital > 0:
+        body += f"<b>یعنی:</b> {money(capital * risk_pct)} در هر معامله\n"
+    body += "\n۱٪ نقطه شروع خوبی است. بالای ۲٪ با چند باخت پشت‌سرهم حساب را می‌برد."
+    return body
+
+
+def render_equity(user: dict) -> str:
+    capital = float(user.get("capital") or 0)
+    peak = float(user.get("peak") or 0)
+    body = "<b>📈 موجودی</b>\n───────────────\n"
+    if capital > 0:
+        body += f"<b>فعلی:</b> {money(capital)} · <b>اوج:</b> {money(peak)}\n"
+        if peak > capital:
+            body += f"<b>افت از اوج:</b> {(capital / peak - 1) * 100:.1f}٪\n"
+        body += "\n"
+    body += (
+        "این را وقتی بزن که موجودی‌ات با <b>سود یا زیان معاملات</b> عوض شده.\n"
+        "اوج حساب دست‌نخورده می‌ماند، تا ترمز افت افت واقعی را ببیند."
+    )
+    return body
+
+
+def render_performance() -> str:
+    return papertrade.summary(papertrade.load())
+
+
+def render_user_detail(data: dict, chat_id: str) -> str:
+    user = data["users"].get(chat_id)
+    if not user:
+        return "این کاربر پیدا نشد."
+    risk_pct, braked = account.effective_risk(user)
+    lines = [
+        f"<b>👤 {user.get('name', '?')}</b>",
+        "───────────────",
+        f"<b>شناسه:</b> <code>{chat_id}</code>",
+        f"<b>سرمایه:</b> {money(float(user.get('capital') or 0))}",
+        f"<b>ریسک:</b> {risk_pct * 100:.2f}٪" + (" 🔻ترمز افت" if braked else ""),
+        f"<b>سیگنال:</b> {'روشن' if user.get('signals', True) else 'خاموش'}",
+        f"<b>عضویت:</b> {user.get('joined', '?')}",
+    ]
+    return "\n".join(lines)
+
+
+# ----------------------------------------------------------------- handlers
+
+
+def apply_capital(data: dict, chat_id: str, amount: float, message_id: int | None) -> None:
+    user = data["users"][chat_id]
+    account.set_capital(user, amount)
+    user["awaiting"] = None
+    users.save(data)
+    show(
+        chat_id,
+        f"✅ سرمایه روی {money(amount)} تنظیم شد.\n"
+        "اوج حساب هم همین عدد شد، پس ترمز افت از اینجا حساب می‌شود.\n\n"
+        + account.describe(user),
+        kb_back(),
+        message_id,
+    )
+
+
+def apply_equity(data: dict, chat_id: str, amount: float, message_id: int | None) -> None:
+    user = data["users"][chat_id]
+    account.set_equity(user, amount)
+    user["awaiting"] = None
+    users.save(data)
+    show(
+        chat_id,
+        f"✅ موجودی روی {money(amount)} به‌روز شد.\n"
+        "اوج حساب دست‌نخورده ماند.\n\n" + account.describe(user),
+        kb_back(),
+        message_id,
+    )
+
+
+def apply_risk(data: dict, chat_id: str, amount: float, message_id: int | None) -> None:
+    user = data["users"][chat_id]
+    user["risk_pct"] = round(min(account.MAX_RISK_PCT, max(account.MIN_RISK_PCT, amount)), 2)
+    user["awaiting"] = None
+    users.save(data)
+    show(chat_id, "✅ ذخیره شد.\n\n" + render_risk(user), kb_risk(), message_id)
+
+
 def handle_callback(callback: dict, data: dict) -> None:
     chat_id = str(callback["message"]["chat"]["id"])
-    callback_id = callback["id"]
+    message_id = callback["message"]["message_id"]
     payload = callback.get("data", "")
+
+    # A button under a signal message must open a fresh menu: editing it would
+    # overwrite the signal itself, and that message is the user's record.
+    if "سیگنال" in (callback["message"].get("text") or ""):
+        message_id = None
+
+    _call("answerCallbackQuery", {"callback_query_id": callback["id"]})
+
+    user = users.get(data, chat_id)
+    if not user:
+        send_text(chat_id, DENIED)
+        return
+
+    admin = users.is_admin(data, chat_id)
+
+    if payload == "m:home":
+        show(chat_id, render_home(user, admin), kb_main(user, admin), message_id)
+        return
+
+    if payload == "m:cap":
+        show(chat_id, render_capital(user), kb_capital(), message_id)
+        return
+
+    if payload == "m:risk":
+        show(chat_id, render_risk(user), kb_risk(), message_id)
+        return
+
+    if payload == "m:eq":
+        show(chat_id, render_equity(user), kb_equity(), message_id)
+        return
+
+    if payload == "m:status":
+        show(chat_id, account.describe(user), kb_back(), message_id)
+        return
+
+    if payload == "m:help":
+        show(chat_id, HELP_TEXT, kb_back(), message_id)
+        return
+
+    if payload == "m:perf":
+        show(chat_id, render_performance(), kb_back(), message_id)
+        return
+
+    if payload == "sig:toggle":
+        user["signals"] = not user.get("signals", True)
+        users.save(data)
+        note = "🔔 سیگنال‌ها روشن شد." if user["signals"] else "🔕 سیگنال‌ها خاموش شد."
+        show(
+            chat_id,
+            render_home(user, admin) + "\n\n" + note,
+            kb_main(user, admin),
+            message_id,
+        )
+        return
 
     if payload.startswith("cap:"):
         choice = payload.split(":", 1)[1]
         if choice == "custom":
-            data["awaiting"] = "capital"
-            account.save(data)
-            _call("answerCallbackQuery", {"callback_query_id": callback_id})
-            reply(chat_id, f"{CAPITAL_ASK}\nمثال: <code>1500</code>")
+            user["awaiting"] = "capital"
+            users.save(data)
+            show(
+                chat_id,
+                "مقدار سرمایه را به دلار بنویس.\nمثال: <code>1500</code>",
+                kb_back(),
+                message_id,
+            )
             return
+        apply_capital(data, chat_id, float(choice), message_id)
+        return
 
-        amount = float(choice)
-        account.set_capital(data, amount)
-        data["awaiting"] = None
-        account.save(data)
-        _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": "ثبت شد"})
-        reply(
-            chat_id,
-            account.describe(data) + "\n\nاوج حساب هم روی همین عدد گذاشته شد، "
-            "پس ترمز افت تازه از اینجا حساب می‌شود.",
-        )
+    if payload.startswith("risk:"):
+        choice = payload.split(":", 1)[1]
+        if choice == "custom":
+            user["awaiting"] = "risk"
+            users.save(data)
+            show(
+                chat_id,
+                "درصد ریسک را بنویس.\nمثال: <code>0.75</code>",
+                kb_back(),
+                message_id,
+            )
+            return
+        apply_risk(data, chat_id, float(choice), message_id)
         return
 
     if payload.startswith("eq:"):
         choice = payload.split(":", 1)[1]
         if choice == "custom":
-            data["awaiting"] = "equity"
-            account.save(data)
-            _call("answerCallbackQuery", {"callback_query_id": callback_id})
-            reply(chat_id, f"{EQUITY_ASK}\nمثال: <code>1250</code>")
+            user["awaiting"] = "equity"
+            users.save(data)
+            show(
+                chat_id,
+                "موجودی فعلی را بنویس.\nمثال: <code>1250</code>",
+                kb_back(),
+                message_id,
+            )
             return
+        account.reset_peak(user)
+        user["awaiting"] = None
+        users.save(data)
+        show(
+            chat_id,
+            "✅ اوج حساب روی موجودی فعلی تنظیم شد.\n\n" + account.describe(user),
+            kb_back(),
+            message_id,
+        )
+        return
 
-        if choice == "reset_peak":
-            account.reset_peak(data)
-            data["awaiting"] = None
-            account.save(data)
-            _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": "اوج بازنشانی شد"})
-            reply(chat_id, account.describe(data))
+    # ------------------------------------------------------------ admin only
+    if not admin:
+        return
+
+    if payload == "adm:users":
+        if not data["users"]:
+            show(chat_id, "هنوز کاربری ثبت نشده.", kb_users(data), message_id)
             return
+        show(
+            chat_id,
+            f"<b>👥 کاربران ({len(data['users'])})</b>\n"
+            "───────────────\n"
+            "روی هر کاربر بزن تا جزئیاتش را ببینی.",
+            kb_users(data),
+            message_id,
+        )
+        return
 
-    _call("answerCallbackQuery", {"callback_query_id": callback_id})
+    if payload.startswith("adm:u:"):
+        target = payload.split(":", 2)[2]
+        text = render_user_detail(data, target)
+        if target == str(data.get("owner")):
+            keyboard = {"inline_keyboard": [[b("⬅️ برگشت", "adm:users")]]}
+        else:
+            keyboard = {
+                "inline_keyboard": [
+                    [b("🗑 حذف دسترسی", f"adm:rm:{target}")],
+                    [b("⬅️ برگشت", "adm:users")],
+                ]
+            }
+        show(chat_id, text, keyboard, message_id)
+        return
+
+    if payload.startswith("adm:rm:"):
+        target = payload.split(":", 2)[2]
+        name = (data["users"].get(target) or {}).get("name", target)
+        if users.remove_user(data, target):
+            users.save(data)
+            send_text(target, "دسترسی شما به این ربات بسته شد.")
+            show(chat_id, f"🗑 {name} حذف شد.", kb_users(data), message_id)
+        else:
+            show(chat_id, "این کاربر را نمی‌شود حذف کرد.", kb_users(data), message_id)
+        return
+
+    if payload == "adm:invite":
+        code = users.make_invite(data, chat_id)
+        users.save(data)
+        link = users.invite_link(data, code)
+        show(
+            chat_id,
+            "<b>🔗 لینک دعوت</b>\n"
+            "───────────────\n"
+            f"<code>{link}</code>\n\n"
+            f"<b>کد:</b> <code>{code}</code>\n\n"
+            "این لینک را برای هر کسی می‌خواهی بفرست. یک‌بار مصرف است و بعد از ۷۲ ساعت منقضی می‌شود.\n"
+            "هر کسی بازش کند، حساب خودش را می‌گیرد و سیگنال‌ها را با سرمایه خودش دریافت می‌کند.",
+            {
+                "inline_keyboard": [
+                    [b("♻️ لینک جدید", "adm:invite")],
+                    [b("⬅️ برگشت", "m:home")],
+                ]
+            },
+            message_id,
+        )
+        return
 
 
 def handle_message(message: dict, data: dict) -> None:
@@ -177,89 +552,125 @@ def handle_message(message: dict, data: dict) -> None:
     if not text:
         return
 
-    awaiting = data.get("awaiting")
+    lowered = text.lower()
+    parts = text.split(maxsplit=1)
+
+    user = users.get(data, chat_id)
+
+    # ------------------------------------------------------- not registered
+    if not user:
+        if lowered.startswith("/start"):
+            code = parts[1].strip() if len(parts) > 1 else ""
+            name = (
+                message["chat"].get("first_name")
+                or message["chat"].get("username")
+                or "کاربر"
+            )
+            if code and users.redeem(data, code, chat_id, name):
+                user = users.get(data, chat_id)
+                user["awaiting"] = "capital"
+                users.save(data)
+                send_text(chat_id, WELCOME.format(name=name), kb_capital())
+                notify_owner(data, f"👤 کاربر جدید: <b>{name}</b> (<code>{chat_id}</code>)")
+                return
+        send_text(chat_id, DENIED)
+        return
+
+    admin = users.is_admin(data, chat_id)
+
+    # ---------------------------------------------------- waiting for a number
+    awaiting = user.get("awaiting")
     if awaiting and not text.startswith("/"):
         amount = parse_amount(text)
         if amount is None:
-            reply(chat_id, "عدد را نفهمیدم. فقط رقم بفرست، مثلاً <code>1500</code>")
+            send_text(
+                chat_id,
+                "عدد را نفهمیدم. فقط رقم بفرست، مثلاً <code>1500</code>",
+                kb_back(),
+            )
             return
-
         if awaiting == "capital":
-            account.set_capital(data, amount)
-            note = "\n\nاوج حساب هم روی همین عدد گذاشته شد."
-        else:
-            account.set_equity(data, amount)
-            note = "\n\nاوج حساب دست‌نخورده ماند، تا ترمز افت ضرر واقعی را ببیند."
-
-        data["awaiting"] = None
-        account.save(data)
-        reply(chat_id, account.describe(data) + note)
+            apply_capital(data, chat_id, amount, None)
+        elif awaiting == "equity":
+            apply_equity(data, chat_id, amount, None)
+        elif awaiting == "risk":
+            apply_risk(data, chat_id, amount, None)
         return
 
     if awaiting:
-        data["awaiting"] = None  # a command arrived instead of a number
-        account.save(data)
+        user["awaiting"] = None
+        users.save(data)
 
-    lowered = text.lower()
-
-    if lowered.startswith("/start"):
-        data["awaiting"] = "capital"
-        account.save(data)
-        reply(chat_id, WELCOME, CAPITAL_KEYBOARD)
+    # --------------------------------------------------------------- commands
+    if lowered.startswith("/start") or lowered.startswith("/menu"):
+        capital = float(user.get("capital") or 0)
+        if capital <= 0:
+            send_text(chat_id, WELCOME.format(name=user.get("name", "کاربر")), kb_capital())
+            user["awaiting"] = "capital"
+            users.save(data)
+            return
+        send_text(chat_id, render_home(user, admin), kb_main(user, admin))
         return
 
     if lowered.startswith("/capital"):
-        data["awaiting"] = "capital"
-        account.save(data)
-        reply(chat_id, CAPITAL_ASK, CAPITAL_KEYBOARD)
+        amount = parse_amount(parts[1]) if len(parts) > 1 else None
+        if amount is None:
+            send_text(chat_id, render_capital(user), kb_capital())
+            return
+        apply_capital(data, chat_id, amount, None)
         return
 
     if lowered.startswith("/equity"):
-        amount = parse_amount(text.split(maxsplit=1)[1]) if len(text.split()) > 1 else None
+        amount = parse_amount(parts[1]) if len(parts) > 1 else None
         if amount is None:
-            data["awaiting"] = "equity"
-            account.save(data)
-            reply(chat_id, EQUITY_ASK, EQUITY_KEYBOARD)
+            send_text(chat_id, render_equity(user), kb_equity())
             return
-        account.set_equity(data, amount)
-        account.save(data)
-        reply(chat_id, account.describe(data))
+        apply_equity(data, chat_id, amount, None)
         return
 
     if lowered.startswith("/risk"):
-        amount = parse_amount(text.split(maxsplit=1)[1]) if len(text.split()) > 1 else None
-        if amount is None or amount > 10:
-            reply(chat_id, "مثال: <code>/risk 0.5</code> — بین ۰٫۱ تا ۱۰ درصد")
+        amount = parse_amount(parts[1]) if len(parts) > 1 else None
+        if amount is None:
+            send_text(chat_id, render_risk(user), kb_risk())
             return
-        data["risk_pct"] = round(amount, 2)
-        account.save(data)
-        reply(chat_id, account.describe(data))
+        apply_risk(data, chat_id, amount, None)
         return
 
-    if lowered.startswith("/status"):
-        reply(chat_id, account.describe(data))
+    if lowered.startswith("/stats") or lowered.startswith("/perf"):
+        send_text(chat_id, render_performance(), kb_back())
         return
 
     if lowered.startswith("/help"):
-        reply(chat_id, HELP)
+        send_text(chat_id, HELP_TEXT, kb_back())
         return
 
-    reply(chat_id, "دستور را نفهمیدم. /help را بزن.")
+    send_text(chat_id, "دکمه‌ها را بزن، یا /menu را بفرست.", kb_main(user, admin))
+
+
+# ------------------------------------------------------------------ polling
 
 
 def poll(seconds: int) -> int:
-    token, allowed_chat = _credentials()
-    data = account.load()
+    _, allowed = _credentials()
+    data = users.load()
     deadline = time.time() + seconds
     handled = 0
 
-    print(f"polling for {seconds}s as chat {allowed_chat}")
+    remember_bot_username(data)
+    print(
+        f"polling for {seconds}s · owner {data.get('owner')} · "
+        f"{len(data['users'])} user(s) · bot @{data.get('bot_username') or '?'}"
+    )
 
     while time.time() < deadline:
         offset = int(data.get("last_update_id") or 0) + 1
         result = _call(
             "getUpdates",
-            {"offset": offset, "timeout": 20, "allowed_updates": ["message", "callback_query"]},
+            {
+                "offset": offset,
+                "timeout": 20,
+                "allowed_updates": ["message", "callback_query"],
+            },
         )
         if not result.get("ok"):
             time.sleep(2)
@@ -268,26 +679,15 @@ def poll(seconds: int) -> int:
         for update in result.get("result", []):
             data["last_update_id"] = update["update_id"]
 
-            chat_id = None
-            if "message" in update:
-                chat_id = str(update["message"]["chat"]["id"])
-            elif "callback_query" in update:
-                chat_id = str(update["callback_query"]["message"]["chat"]["id"])
-
-            if chat_id != str(allowed_chat):
-                print(f"ignoring update from chat {chat_id}")
-                account.save(data)
-                continue
-
             if "callback_query" in update:
                 handle_callback(update["callback_query"], data)
             elif "message" in update:
                 handle_message(update["message"], data)
 
             handled += 1
-            account.save(data)
+            users.save(data)
 
-    account.save(data)
+    users.save(data)
     print(f"handled {handled} update(s)")
     return 0
 
