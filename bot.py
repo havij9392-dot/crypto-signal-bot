@@ -925,6 +925,11 @@ def poll(seconds: int) -> int:
             continue
 
         for update in result.get("result", []):
+            # Re-read the file before every update. A run holds this data in
+            # memory for 20 minutes, so without this reload a change made while
+            # it was listening - by hand, or by the other workflow - is quietly
+            # overwritten by the save below with the stale copy.
+            data = users.load()
             data["last_update_id"] = update["update_id"]
 
             if "callback_query" in update:
@@ -935,7 +940,10 @@ def poll(seconds: int) -> int:
             handled += 1
             users.save(data)
 
-    users.save(data)
+    # An idle window must not rewrite the file at all: nothing was handled, so
+    # there is nothing of this run's to persist.
+    if handled:
+        users.save(data)
     print(f"handled {handled} update(s)")
     return 0
 
