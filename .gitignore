@@ -9,5 +9,8 @@ __pycache__/
 data/*.csv
 data/manifest.json
 
+# 2 years of 4h history for the research sweep, ~34 MB
+data4h/
+
 # Logs
 logs/*.log

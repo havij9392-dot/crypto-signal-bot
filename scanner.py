@@ -1,13 +1,23 @@
 """
-Phase 3 - Signal engine.
+Phase 6 - Live signal engine, 4h.
 
-Scans the market for the one setup that survived out-of-sample testing:
-an EMA20/EMA50 cross, filtered by the 200 EMA on the same timeframe and by
-Bitcoin's own trend. Everything else was rejected by the backtest and is not
-wired in here.
+The strategy is the winner of the 56-strategy sweep (see sweep.py and
+reports/strategy_sweep.csv):
 
-Runs are idempotent: a signal is sent once per candle close, tracked in
-state/last_signals.json, so running every 15 minutes does not spam you.
+    EMA20 crosses EMA50 on 4h, price on the correct side of EMA200,
+    and Bitcoin itself must agree (close above/below its own 4h EMA200).
+
+Measured on 138 symbols over 2 years, with real fees and slippage:
+    3709 trades · 39.3% win · PF 1.27 · +0.143R per trade
+    in-sample +0.114R · out-of-sample +0.191R  (out-of-sample is higher)
+    92 of 138 symbols individually profitable
+    still +0.100R after deleting the 10 best-contributing symbols
+
+Exit: stop 2.5 x ATR, target 3R, give up after 60 bars (10 days).
+
+The signal function is imported from strategies.py, so what runs live is
+literally the same code the backtest measured. Runs are idempotent: one signal
+per candle close, tracked in state/last_signals.json.
 
 Usage:
     python scanner.py           # scan and print
@@ -19,41 +29,33 @@ from __future__ import annotations
 import json
 import os
 import sys
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import pandas as pd
 
-from backtest import add_indicators
+from features import add_all
 from notify import send
 from okx import fetch_klines, top_symbols, volumes
+from strategies import ema_cross_20_50
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(HERE, "state")
 STATE_FILE = os.path.join(STATE_DIR, "last_signals.json")
 
-INTERVAL = "30m"            # entry timeframe
-LOOKBACK_DAYS = 10          # 480 candles: enough for a 200 EMA, cheap to fetch
-WORKERS = 8                 # parallel fetches, keeps a 200-symbol scan under 2 min
+INTERVAL = "4h"
+LOOKBACK_DAYS = 200      # 1200 bars: comfortably past the 200 EMA
+WORKERS = 10
 
-# The market regime is read from 4h, not 30m: a 200 EMA on 30m only covers four
-# days and flips several times a week, which turns the filter into noise.
 REGIME_INTERVAL = "4h"
-REGIME_DAYS = 90
+REGIME_DAYS = 200
 
-# Best of 48 stop/target/hold combinations measured on 30m by grid30.py.
-# Nothing on 30m is profitable after fees; this is the least-bad one.
-SL_ATR = 3.0
-RR = 2.0
+SL_ATR = 2.5
+RR = 3.0
+MAX_HOLD_BARS = 60       # 10 days on 4h
 
-# A cross stays tradeable for this many candles (3 hours) as long as price is
-# still on the right side of the 200 EMA. Waiting for the exact candle the cross
-# happens misses most of them - the scan only wakes up twice an hour.
-ENTRY_WINDOW = 4
-
-# Coins below this 24h turnover are skipped: the spread alone eats the edge.
 MIN_TURNOVER_USD = 3_000_000
+MIN_STOP_PCT = 1.5       # below this the fee eats the edge (see reports/30m_verdict.md)
 
 PAPER_BANNER = "⚠️ حالت آزمایشی — این سیگنال هنوز با پول واقعی تأیید نشده"
 
@@ -74,74 +76,35 @@ def candles_to_frame(raw: list[list]) -> pd.DataFrame:
             "volume": [float(row[5]) for row in raw],
         }
     )
-    return add_indicators(frame)
+    return add_all(frame)
 
 
 def btc_regime() -> int:
-    """+1 when Bitcoin is above its 200 EMA, -1 when below. Read from 4h."""
+    """+1 when Bitcoin is above its own 4h EMA200, -1 when below."""
     frame = candles_to_frame(fetch_klines("BTCUSDT", REGIME_INTERVAL, REGIME_DAYS))
     return 1 if frame["close"].iloc[-1] > frame["ema200"].iloc[-1] else -1
 
 
-def detect(frame: pd.DataFrame) -> int:
-    """Signal on the last closed candle: +1 long, -1 short, 0 nothing.
-
-    A cross is valid for ENTRY_WINDOW candles as long as price is still on the
-    correct side of the 200 EMA and no opposite cross happened in between.
-    """
-    if len(frame) < 210:
-        return 0
-
-    fast, slow, trend, close = (
-        frame["ema20"],
-        frame["ema50"],
-        frame["ema200"],
-        frame["close"],
-    )
-    last = -1
-
-    if pd.isna(trend.iloc[last]) or pd.isna(frame["atr"].iloc[last]):
-        return 0
-
-    cross_up = (fast > slow) & (fast.shift(1) <= slow.shift(1))
-    cross_dn = (fast < slow) & (fast.shift(1) >= slow.shift(1))
-
-    idx = pd.Series(range(len(frame)), index=frame.index)
-    up_at = idx.where(cross_up).ffill()
-    dn_at = idx.where(cross_dn).ffill()
-
-    age_up = idx.iloc[last] - up_at.iloc[last]
-    age_dn = idx.iloc[last] - dn_at.iloc[last]
-
-    if pd.isna(age_up):
-        age_up = 10**9
-    if pd.isna(age_dn):
-        age_dn = 10**9
-
-    long_ = age_up < ENTRY_WINDOW and close.iloc[last] > trend.iloc[last] and age_up < age_dn
-    short = age_dn < ENTRY_WINDOW and close.iloc[last] < trend.iloc[last] and age_dn < age_up
-
-    return 1 if long_ else (-1 if short else 0)
-
-
-def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict:
-    price = frame["close"].iloc[-1]
-    atr = frame["atr"].iloc[-1]
+def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
+    price = float(frame["close"].iloc[-1])
+    atr = float(frame["atr"].iloc[-1])
     risk = SL_ATR * atr
+    stop_pct = risk / price * 100
 
-    if side > 0:
-        stop, target = price - risk, price + RR * risk
-    else:
-        stop, target = price + risk, price - RR * risk
+    if stop_pct < MIN_STOP_PCT:
+        return None
 
     return {
         "symbol": symbol,
         "side": side,
         "price": price,
-        "stop_pct": risk / price * 100,
+        "stop_pct": stop_pct,
         "target_pct": RR * risk / price * 100,
-        "rsi": frame["rsi"].iloc[-1],
+        "rsi": float(frame["rsi"].iloc[-1]),
         "candle": frame["open_time"].iloc[-1],
+        # liquidation sits at roughly 100/leverage percent, so anything above
+        # this would be stopped out by the exchange before our stop is hit
+        "max_lev": max(1, int(0.8 * 100 / stop_pct)),
     }
 
 
@@ -158,7 +121,7 @@ def format_message(plan: dict) -> str:
 
     thin = ""
     if volume is not None and volume < 5_000_000:
-        thin = "⚠️ نقدشوندگی پایین — اسپرد پهن است، با حجم کم وارد شو\n"
+        thin = "⚠️ نقدشوندگی پایین — با حجم کم وارد شو\n"
 
     return (
         f"🔔 <b>سیگنال {plan['symbol']}</b>\n"
@@ -169,7 +132,8 @@ def format_message(plan: dict) -> str:
         f"<b>حد سود:</b> +{plan['target_pct']:.2f}٪\n"
         "───────────────\n"
         f"{volume_line}"
-        f"کندل ۳۰ دقیقه: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
+        f"کندل ۴ ساعته: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
+        f"اهرم پیشنهادی: حداکثر {plan['max_lev']}× (بالاتر از این، لیکویید می‌شوی)\n"
         f"{thin}"
         "───────────────\n"
         f"{PAPER_BANNER}"
@@ -192,7 +156,10 @@ def save_state(state: dict) -> None:
 def scan_one(symbol: str, regime: int) -> dict | None:
     """Return a plan if this symbol qualifies, otherwise None."""
     frame = candles_to_frame(fetch_klines(symbol, INTERVAL, LOOKBACK_DAYS))
-    side = detect(frame)
+    if len(frame) < 220:
+        return None
+
+    side = int(ema_cross_20_50(frame).iloc[-1])
     if side == 0 or side != regime:
         return None
     return build_plan(symbol, frame, side)
@@ -207,8 +174,6 @@ def main(argv: list[str]) -> int:
 
     symbols = top_symbols()
 
-    # One bulk call gives the 24h turnover for everything; skip the dead coins
-    # before spending 200 candle requests on them.
     try:
         turnover = volumes()
     except Exception as exc:  # noqa: BLE001 - fall back to scanning everything

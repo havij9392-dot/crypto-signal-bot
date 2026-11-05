@@ -2,8 +2,8 @@ name: scan
 
 on:
   schedule:
-    # Every 30 min is plenty: signals only fire when a 4h candle closes.
-    # It also keeps us far below the 2000 min/month quota on private repos.
+    # Signals only fire when a 4h candle closes, so every 30 min is generous.
+    # The scanner is idempotent: a signal is sent once per candle close.
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -29,45 +29,6 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      - name: Diagnose environment
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          {
-            echo "### Environment check"
-            echo ""
-            echo "| source | ping | real klines |"
-            echo "|---|---|---|"
-
-            check() {
-              name="$1"; ping_url="$2"; data_url="$3"
-              p=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$ping_url" || echo 000)
-              d=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$data_url" || echo 000)
-              echo "| $name | $p | $d |"
-            }
-
-            check "Binance" "https://fapi.binance.com/fapi/v1/ping" \
-              "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=30m&limit=2"
-            check "Bybit" "https://api.bybit.com/v5/market/time" \
-              "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=30&limit=2"
-            check "OKX" "https://www.okx.com/api/v5/public/time" \
-              "https://www.okx.com/api/v5/market/candles?instId=BTC-USDT-SWAP&bar=30m&limit=2"
-            check "KuCoin" "https://api-futures.kucoin.com/api/v1/timestamp" \
-              "https://api-futures.kucoin.com/api/v1/kline/query?symbol=XBTUSDTM&granularity=30&from=1790000000000"
-            check "MEXC" "https://contract.mexc.com/api/v1/contract/ping" \
-              "https://contract.mexc.com/api/v1/contract/kline/BTC_USDT?interval=Min30"
-            check "Gate.io" "https://api.gateio.ws/api/v4/spot/time" \
-              "https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=BTC_USDT&interval=30m&limit=2"
-            check "TradingView" "https://scanner.tradingview.com/crypto/scan" \
-              "https://scanner.tradingview.com/crypto/scan"
-
-            echo ""
-            echo "country: $(curl -s -m 10 https://ipinfo.io/country || echo unknown)"
-            if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "- telegram token: present"; else echo "- telegram token: **MISSING**"; fi
-            if [ -n "$TELEGRAM_CHAT_ID" ]; then echo "- telegram chat id: present"; else echo "- telegram chat id: **MISSING**"; fi
-          } >> $GITHUB_STEP_SUMMARY
 
       - name: Scan market and send signals
         env:
