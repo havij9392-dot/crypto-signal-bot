@@ -32,18 +32,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(HERE, "state")
 STATE_FILE = os.path.join(STATE_DIR, "last_signals.json")
 
-INTERVAL = "4h"
-LOOKBACK_DAYS = 90          # ~540 candles, enough for the 200 EMA to settle
+INTERVAL = "30m"            # entry timeframe
+LOOKBACK_DAYS = 30          # ~1440 candles, plenty for a 200 EMA on 30m
+
+# The market regime is read from 4h, not 30m: a 200 EMA on 30m only covers four
+# days and flips several times a week, which turns the filter into noise.
+REGIME_INTERVAL = "4h"
+REGIME_DAYS = 90
 
 # The exact configuration chosen on in-sample data in research.py.
 SL_ATR = 2.5
 RR = 3.0
-
-# Position sizing. Leverage is only used to show how much margin gets locked -
-# risk per trade is what actually decides the size of the position.
-ACCOUNT_USD = float(os.environ.get("ACCOUNT_USD", "1000"))
-RISK_PCT = float(os.environ.get("RISK_PCT", "0.5"))
-LEVERAGE = float(os.environ.get("LEVERAGE", "20"))
 
 PAPER_BANNER = "⚠️ حالت آزمایشی — این سیگنال هنوز با پول واقعی تأیید نشده"
 
@@ -68,8 +67,8 @@ def candles_to_frame(raw: list[list]) -> pd.DataFrame:
 
 
 def btc_regime() -> int:
-    """+1 when Bitcoin is above its 200 EMA, -1 when below."""
-    frame = candles_to_frame(fetch_klines("BTCUSDT", INTERVAL, LOOKBACK_DAYS))
+    """+1 when Bitcoin is above its 200 EMA, -1 when below. Read from 4h."""
+    frame = candles_to_frame(fetch_klines("BTCUSDT", REGIME_INTERVAL, REGIME_DAYS))
     return 1 if frame["close"].iloc[-1] > frame["ema200"].iloc[-1] else -1
 
 
@@ -108,27 +107,12 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict:
     else:
         stop, target = price + risk, price - RR * risk
 
-    stop_share = risk / price                       # stop distance as a decimal
-    risk_usd = ACCOUNT_USD * RISK_PCT / 100
-    notional = risk_usd / stop_share if stop_share else 0.0
-    margin = notional / LEVERAGE if LEVERAGE else notional
-
-    # liquidation sits roughly 1/leverage away, so keep a 20% cushion past the stop
-    max_safe_leverage = int(0.8 / stop_share) if stop_share else 0
-
     return {
         "symbol": symbol,
         "side": side,
         "price": price,
-        "stop": stop,
-        "target": target,
-        "stop_pct": stop_share * 100,
-        "target_pct": abs(target - price) / price * 100,
-        "notional": notional,
-        "margin": margin,
-        "risk_usd": risk_usd,
-        "reward_usd": risk_usd * RR,
-        "max_safe_leverage": max_safe_leverage,
+        "stop_pct": risk / price * 100,
+        "target_pct": RR * risk / price * 100,
         "rsi": frame["rsi"].iloc[-1],
         "candle": frame["open_time"].iloc[-1],
     }
@@ -136,31 +120,15 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict:
 
 def format_message(plan: dict) -> str:
     arrow = "🟢 خرید (لانگ)" if plan["side"] > 0 else "🔴 فروش (شورت)"
-
-    warning = ""
-    if LEVERAGE > plan["max_safe_leverage"]:
-        warning = (
-            f"\n⚠️ <b>اهرم {LEVERAGE:.0f} برای این حد ضرر خطرناک است.</b>\n"
-            f"حداکثر اهرم امن: {plan['max_safe_leverage']}x — "
-            "با اهرم بالاتر ممکن است قبل از حد ضرر لیکویید شوی.\n"
-        )
-
     return (
         f"🔔 <b>سیگنال {plan['symbol']}</b>\n"
         "───────────────\n"
         f"<b>جهت:</b> {arrow}\n"
         f"<b>قیمت ورود:</b> {plan['price']:,.4f}\n"
-        f"<b>حد ضرر:</b> {plan['stop']:,.4f}  (−{plan['stop_pct']:.2f}٪)\n"
-        f"<b>حد سود:</b> {plan['target']:,.4f}  (+{plan['target_pct']:.2f}٪)\n"
+        f"<b>حد ضرر:</b> −{plan['stop_pct']:.2f}٪\n"
+        f"<b>حد سود:</b> +{plan['target_pct']:.2f}٪\n"
         "───────────────\n"
-        f"<b>حجم پوزیشن:</b> ${plan['notional']:,.0f}\n"
-        f"<b>مارجین با اهرم {LEVERAGE:.0f}:</b> ${plan['margin']:,.1f}\n"
-        f"<b>ضرر اگر حد ضرر بخوره:</b> −${plan['risk_usd']:,.2f}\n"
-        f"<b>سود اگر حد سود بخوره:</b> +${plan['reward_usd']:,.2f}\n"
-        "───────────────\n"
-        f"حداکثر اهرم امن: {plan['max_safe_leverage']}x\n"
-        f"کندل ۴ ساعته: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
-        f"{warning}"
+        f"کندل ۳۰ دقیقه: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
         "───────────────\n"
         f"{PAPER_BANNER}"
     )
