@@ -38,17 +38,35 @@ jobs:
           {
             echo "### Environment check"
             echo ""
-            echo "| item | result |"
-            echo "|---|---|"
-            echo "| runner region | $RUNNER_OS / $(curl -s -m 10 https://ipinfo.io/country || echo unknown) |"
-            code=$(curl -s -o /tmp/fapi.txt -w "%{http_code}" -m 20 https://fapi.binance.com/fapi/v1/ping || echo 000)
-            echo "| binance fapi ping | HTTP $code |"
-            body=$(head -c 200 /tmp/fapi.txt 2>/dev/null | tr -d '\n' || echo none)
-            echo "| binance response | \`$body\` |"
-            code2=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://api.bybit.com/v5/market/time || echo 000)
-            echo "| bybit ping | HTTP $code2 |"
-            if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "| telegram token | present |"; else echo "| telegram token | **MISSING** |"; fi
-            if [ -n "$TELEGRAM_CHAT_ID" ]; then echo "| telegram chat id | present |"; else echo "| telegram chat id | **MISSING** |"; fi
+            echo "| source | ping | real klines |"
+            echo "|---|---|---|"
+
+            check() {
+              name="$1"; ping_url="$2"; data_url="$3"
+              p=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$ping_url" || echo 000)
+              d=$(curl -s -o /dev/null -w "%{http_code}" -m 20 "$data_url" || echo 000)
+              echo "| $name | $p | $d |"
+            }
+
+            check "Binance" "https://fapi.binance.com/fapi/v1/ping" \
+              "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=30m&limit=2"
+            check "Bybit" "https://api.bybit.com/v5/market/time" \
+              "https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=30&limit=2"
+            check "OKX" "https://www.okx.com/api/v5/public/time" \
+              "https://www.okx.com/api/v5/market/candles?instId=BTC-USDT-SWAP&bar=30m&limit=2"
+            check "KuCoin" "https://api-futures.kucoin.com/api/v1/timestamp" \
+              "https://api-futures.kucoin.com/api/v1/kline/query?symbol=XBTUSDTM&granularity=30&from=1790000000000"
+            check "MEXC" "https://contract.mexc.com/api/v1/contract/ping" \
+              "https://contract.mexc.com/api/v1/contract/kline/BTC_USDT?interval=Min30"
+            check "Gate.io" "https://api.gateio.ws/api/v4/spot/time" \
+              "https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=BTC_USDT&interval=30m&limit=2"
+            check "TradingView" "https://scanner.tradingview.com/crypto/scan" \
+              "https://scanner.tradingview.com/crypto/scan"
+
+            echo ""
+            echo "country: $(curl -s -m 10 https://ipinfo.io/country || echo unknown)"
+            if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "- telegram token: present"; else echo "- telegram token: **MISSING**"; fi
+            if [ -n "$TELEGRAM_CHAT_ID" ]; then echo "- telegram chat id: present"; else echo "- telegram chat id: **MISSING**"; fi
           } >> $GITHUB_STEP_SUMMARY
 
       - name: Scan market and send signals
