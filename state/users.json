@@ -1,13 +1,13 @@
 {
   "owner": "6090974409",
-  "bot_username": "",
-  "last_update_id": 408113309,
+  "bot_username": "zakaisignal_bot",
+  "last_update_id": 408113318,
   "users": {
     "6090974409": {
       "name": "امیر",
-      "capital": 0.0,
+      "capital": 500.0,
       "risk_pct": 1.0,
-      "peak": 0.0,
+      "peak": 500.0,
       "signals": true,
       "awaiting": null,
       "joined": "2026-11-05T19:29:24Z"

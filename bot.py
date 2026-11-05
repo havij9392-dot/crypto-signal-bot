@@ -232,6 +232,11 @@ def parse_amount(text: str) -> float | None:
     return value if value > 0 else None
 
 
+def arg_after(text: str, command: str) -> str:
+    """Whatever follows the command, with or without a space: '/equity200' works."""
+    return text[len(command):].strip()
+
+
 def remember_bot_username(data: dict) -> None:
     if data.get("bot_username"):
         return
@@ -613,7 +618,7 @@ def handle_message(message: dict, data: dict) -> None:
         return
 
     if lowered.startswith("/capital"):
-        amount = parse_amount(parts[1]) if len(parts) > 1 else None
+        amount = parse_amount(arg_after(text, "/capital"))
         if amount is None:
             send_text(chat_id, render_capital(user), kb_capital())
             return
@@ -621,7 +626,7 @@ def handle_message(message: dict, data: dict) -> None:
         return
 
     if lowered.startswith("/equity"):
-        amount = parse_amount(parts[1]) if len(parts) > 1 else None
+        amount = parse_amount(arg_after(text, "/equity"))
         if amount is None:
             send_text(chat_id, render_equity(user), kb_equity())
             return
@@ -629,7 +634,7 @@ def handle_message(message: dict, data: dict) -> None:
         return
 
     if lowered.startswith("/risk"):
-        amount = parse_amount(parts[1]) if len(parts) > 1 else None
+        amount = parse_amount(arg_after(text, "/risk"))
         if amount is None:
             send_text(chat_id, render_risk(user), kb_risk())
             return
