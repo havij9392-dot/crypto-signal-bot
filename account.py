@@ -56,14 +56,27 @@ def save(data: dict) -> None:
 
 
 def set_capital(data: dict, amount: float) -> None:
+    """Explicit new baseline - a deposit or a withdrawal.
+
+    The peak follows the new number, because money the user took out is not a
+    trading loss and must not trip the drawdown brake.
+    """
     data["capital"] = round(float(amount), 2)
-    data["peak"] = max(data.get("peak") or 0.0, data["capital"])
+    data["peak"] = data["capital"]
 
 
 def set_equity(data: dict, amount: float) -> None:
-    """Update the live equity without resetting the peak - that is what drives the brake."""
+    """Live balance after profit or loss.
+
+    The peak is kept, which is exactly what lets the brake see a real drawdown.
+    """
     data["capital"] = round(float(amount), 2)
-    data["peak"] = max(data.get("peak") or 0.0, data["capital"])
+    data["peak"] = max(float(data.get("peak") or 0.0), data["capital"])
+
+
+def reset_peak(data: dict) -> None:
+    """Start a fresh peak from the current balance."""
+    data["peak"] = float(data.get("capital") or 0.0)
 
 
 def effective_risk(data: dict) -> tuple[float, bool]:
@@ -118,4 +131,6 @@ def describe(data: dict) -> str:
         lines.append("🔻 <b>ترمز افت فعال است</b> — حساب زیر ۷۵٪ اوجش است")
     if peak > capital:
         lines.append(f"<b>افت از اوج:</b> {(capital / peak - 1) * 100:.1f}٪")
+    lines.append("───────────────")
+    lines.append("/capital برای تغییر سرمایه · /equity برای به‌روز کردن موجودی")
     return "\n".join(lines)

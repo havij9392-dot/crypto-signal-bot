@@ -7,9 +7,9 @@ from that number.
 
 Commands
     /start          welcome, plus the capital keyboard
-    /capital        ask again, with buttons
+    /capital        change the capital (deposit or withdrawal); resets the peak
+    /equity 1250    update the live balance after P&L; keeps the peak
     /risk 0.5       risk per trade, in percent
-    /equity 1250    update the live balance (peak is kept, so the brake works)
     /status         what the bot currently thinks
     /help           this list
 
@@ -40,7 +40,8 @@ API = "https://api.telegram.org/bot{token}/{method}"
 WELCOME = (
     "سلام امیر ⚡\n\n"
     "برای شروع بگو با چه سرمایه‌ای می‌خواهی کار کنی.\n"
-    "بعد از آن، هر سیگنال با حجم، مارجین و اهرم مخصوص همان سرمایه می‌آید."
+    "بعد از آن، هر سیگنال با حجم، مارجین و اهرم مخصوص همان سرمایه می‌آید.\n\n"
+    "هر وقت سرمایه کم یا زیاد شد، از /capital یا /equity تغییرش بده."
 )
 
 CAPITAL_KEYBOARD = {
@@ -53,19 +54,34 @@ CAPITAL_KEYBOARD = {
             {"text": "۲٬۰۰۰ دلار", "callback_data": "cap:2000"},
             {"text": "۵٬۰۰۰ دلار", "callback_data": "cap:5000"},
         ],
-        [{"text": "مقدار دیگر…", "callback_data": "cap:custom"}],
+        [{"text": "✏️ مقدار دیگر", "callback_data": "cap:custom"}],
+    ]
+}
+
+EQUITY_KEYBOARD = {
+    "inline_keyboard": [
+        [{"text": "✏️ موجودی جدید", "callback_data": "eq:custom"}],
+        [{"text": "♻️ بازنشانی اوج به موجودی فعلی", "callback_data": "eq:reset_peak"}],
     ]
 }
 
 HELP = (
     "<b>دستورها</b>\n"
     "───────────────\n"
-    "/capital — تعیین سرمایه (با دکمه)\n"
+    "/capital — تغییر سرمایه (واریز یا برداشت)\n"
+    "/equity — به‌روز کردن موجودی بعد از سود یا زیان\n"
     "/risk 0.5 — ریسک هر معامله به درصد\n"
-    "/equity 1250 — به‌روز کردن موجودی فعلی\n"
     "/status — وضعیت فعلی\n"
-    "/help — همین لیست"
+    "/help — همین لیست\n"
+    "───────────────\n"
+    "<b>فرق /capital و /equity:</b>\n"
+    "‏/capital اوج حساب را هم روی عدد جدید می‌گذارد، پس پولی که برداشت کردی "
+    "به‌عنوان ضرر حساب نمی‌شود.\n"
+    "‏/equity اوج را نگه می‌دارد، تا ترمز افت بتواند ضرر واقعی را ببیند."
 )
+
+CAPITAL_ASK = "سرمایه‌ات چقدر است؟ (واریز یا برداشت)"
+EQUITY_ASK = "موجودی فعلی‌ات چقدر است؟"
 
 
 def _call(method: str, payload: dict) -> dict:
@@ -120,7 +136,7 @@ def handle_callback(callback: dict, data: dict) -> None:
             data["awaiting"] = "capital"
             account.save(data)
             _call("answerCallbackQuery", {"callback_query_id": callback_id})
-            reply(chat_id, "مقدار سرمایه را به دلار بنویس. مثال: <code>1500</code>")
+            reply(chat_id, f"{CAPITAL_ASK}\nمثال: <code>1500</code>")
             return
 
         amount = float(choice)
@@ -128,8 +144,29 @@ def handle_callback(callback: dict, data: dict) -> None:
         data["awaiting"] = None
         account.save(data)
         _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": "ثبت شد"})
-        reply(chat_id, account.describe(data) + "\n\nهر سیگنال از این به بعد بر همین اساس سایز می‌شود.")
+        reply(
+            chat_id,
+            account.describe(data) + "\n\nاوج حساب هم روی همین عدد گذاشته شد، "
+            "پس ترمز افت تازه از اینجا حساب می‌شود.",
+        )
         return
+
+    if payload.startswith("eq:"):
+        choice = payload.split(":", 1)[1]
+        if choice == "custom":
+            data["awaiting"] = "equity"
+            account.save(data)
+            _call("answerCallbackQuery", {"callback_query_id": callback_id})
+            reply(chat_id, f"{EQUITY_ASK}\nمثال: <code>1250</code>")
+            return
+
+        if choice == "reset_peak":
+            account.reset_peak(data)
+            data["awaiting"] = None
+            account.save(data)
+            _call("answerCallbackQuery", {"callback_query_id": callback_id, "text": "اوج بازنشانی شد"})
+            reply(chat_id, account.describe(data))
+            return
 
     _call("answerCallbackQuery", {"callback_query_id": callback_id})
 
@@ -140,25 +177,53 @@ def handle_message(message: dict, data: dict) -> None:
     if not text:
         return
 
-    if data.get("awaiting") == "capital":
+    awaiting = data.get("awaiting")
+    if awaiting and not text.startswith("/"):
         amount = parse_amount(text)
         if amount is None:
             reply(chat_id, "عدد را نفهمیدم. فقط رقم بفرست، مثلاً <code>1500</code>")
             return
-        account.set_capital(data, amount)
+
+        if awaiting == "capital":
+            account.set_capital(data, amount)
+            note = "\n\nاوج حساب هم روی همین عدد گذاشته شد."
+        else:
+            account.set_equity(data, amount)
+            note = "\n\nاوج حساب دست‌نخورده ماند، تا ترمز افت ضرر واقعی را ببیند."
+
         data["awaiting"] = None
         account.save(data)
-        reply(chat_id, account.describe(data) + "\n\nهر سیگنال از این به بعد بر همین اساس سایز می‌شود.")
+        reply(chat_id, account.describe(data) + note)
         return
+
+    if awaiting:
+        data["awaiting"] = None  # a command arrived instead of a number
+        account.save(data)
 
     lowered = text.lower()
 
     if lowered.startswith("/start"):
+        data["awaiting"] = "capital"
+        account.save(data)
         reply(chat_id, WELCOME, CAPITAL_KEYBOARD)
         return
 
     if lowered.startswith("/capital"):
-        reply(chat_id, "سرمایه‌ات چقدر است؟", CAPITAL_KEYBOARD)
+        data["awaiting"] = "capital"
+        account.save(data)
+        reply(chat_id, CAPITAL_ASK, CAPITAL_KEYBOARD)
+        return
+
+    if lowered.startswith("/equity"):
+        amount = parse_amount(text.split(maxsplit=1)[1]) if len(text.split()) > 1 else None
+        if amount is None:
+            data["awaiting"] = "equity"
+            account.save(data)
+            reply(chat_id, EQUITY_ASK, EQUITY_KEYBOARD)
+            return
+        account.set_equity(data, amount)
+        account.save(data)
+        reply(chat_id, account.describe(data))
         return
 
     if lowered.startswith("/risk"):
@@ -167,16 +232,6 @@ def handle_message(message: dict, data: dict) -> None:
             reply(chat_id, "مثال: <code>/risk 0.5</code> — بین ۰٫۱ تا ۱۰ درصد")
             return
         data["risk_pct"] = round(amount, 2)
-        account.save(data)
-        reply(chat_id, account.describe(data))
-        return
-
-    if lowered.startswith("/equity"):
-        amount = parse_amount(text.split(maxsplit=1)[1]) if len(text.split()) > 1 else None
-        if amount is None:
-            reply(chat_id, "مثال: <code>/equity 1250</code>")
-            return
-        account.set_equity(data, amount)
         account.save(data)
         reply(chat_id, account.describe(data))
         return
