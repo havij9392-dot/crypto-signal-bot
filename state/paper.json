@@ -1,4 +1,15 @@
 {
-  "open": [],
+  "open": [
+    {
+      "id": "ASTERUSDT@2026-11-05 16:00",
+      "symbol": "ASTERUSDT",
+      "side": -1,
+      "entry": 0.6946,
+      "stop_pct": 3.6550964793629612,
+      "target_pct": 10.965289438088883,
+      "opened": "2026-11-05 16:00",
+      "opened_at": "2026-11-05 20:47"
+    }
+  ],
   "closed": []
 }
