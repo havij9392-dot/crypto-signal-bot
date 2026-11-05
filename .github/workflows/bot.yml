@@ -8,6 +8,16 @@ on:
     # hours: a long window per run covers far more time than many tiny ones.
     # The 10-minute gap absorbs GitHub's scheduling jitter without queueing.
     - cron: "*/30 * * * *"
+  # A push that touches the bot restarts it at once, so new code takes effect
+  # immediately instead of waiting for the next cron - and the very first run
+  # is what makes GitHub register the schedule above.
+  push:
+    paths:
+      - "bot.py"
+      - "users.py"
+      - "account.py"
+      - "papertrade.py"
+      - ".github/workflows/bot.yml"
   workflow_dispatch:
 
 permissions:
