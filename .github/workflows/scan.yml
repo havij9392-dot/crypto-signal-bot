@@ -10,8 +10,11 @@ on:
 permissions:
   contents: write
 
+# Its own group, so the bot's listen windows never cancel a queued scan.
+# The two workflows touch different files in state/, and the push step below
+# rebases and retries, so they can safely overlap.
 concurrency:
-  group: state
+  group: scan
   cancel-in-progress: false
 
 jobs:
@@ -38,13 +41,21 @@ jobs:
 
       - name: Persist sent-signal state
         run: |
-          if [ -d state ] && [ -n "$(git status --porcelain state/)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state/
-            git commit -m "state: record sent signals"
-            git pull --rebase origin main
-            git push
-          else
+          if [ -z "$(git status --porcelain state/)" ]; then
             echo "no new signals, state unchanged"
+            exit 0
           fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          git commit -m "state: record sent signals"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin main && git push; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            git rebase --abort || true
+            sleep 5
+          done
+          echo "could not push state after 3 attempts"
+          exit 1
