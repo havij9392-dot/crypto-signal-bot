@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: scan
+  group: state
   cancel-in-progress: false
 
 jobs:
@@ -43,6 +43,7 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add state/
             git commit -m "state: record sent signals"
+            git pull --rebase origin main
             git push
           else
             echo "no new signals, state unchanged"

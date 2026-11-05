@@ -39,6 +39,8 @@ from notify import send
 from okx import fetch_klines, top_symbols, volumes
 from strategies import ema_cross_20_50
 
+import account
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATE_DIR = os.path.join(HERE, "state")
 STATE_FILE = os.path.join(STATE_DIR, "last_signals.json")
@@ -92,7 +94,7 @@ def btc_regime() -> int:
     return 1 if frame["close"].iloc[-1] > frame["ema200"].iloc[-1] else -1
 
 
-def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
+def build_plan(symbol: str, frame: pd.DataFrame, side: int, acct: dict | None = None) -> dict | None:
     price = float(frame["close"].iloc[-1])
     atr = float(frame["atr"].iloc[-1])
     risk = SL_ATR * atr
@@ -101,7 +103,7 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
     if stop_pct < MIN_STOP_PCT:
         return None
 
-    return {
+    plan = {
         "symbol": symbol,
         "side": side,
         "price": price,
@@ -109,11 +111,26 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
         "target_pct": RR * risk / price * 100,
         "rsi": float(frame["rsi"].iloc[-1]),
         "candle": frame["open_time"].iloc[-1],
-        # safe leverage from the stop distance, then hard-capped at MAX_LEVERAGE
         "max_lev": max(1, min(MAX_LEVERAGE, int(LIQUIDATION_BUFFER * 100 / stop_pct))),
-        # what a losing trade actually costs on the margin at that leverage
-        "loss_at_max_lev": min(100.0, stop_pct * min(MAX_LEVERAGE, int(LIQUIDATION_BUFFER * 100 / stop_pct))),
+        "loss_at_max_lev": min(
+            100.0,
+            stop_pct * min(MAX_LEVERAGE, int(LIQUIDATION_BUFFER * 100 / stop_pct)),
+        ),
+        "sizing": None,
     }
+
+    if acct:
+        capital = float(acct.get("capital") or 0)
+        if capital > 0:
+            risk_pct, braked = account.effective_risk(acct)
+            size = account.sizing(capital, risk_pct, stop_pct)
+            if size:
+                size["risk_pct"] = risk_pct * 100
+                size["braked"] = braked
+                size["capital"] = capital
+                plan["sizing"] = size
+
+    return plan
 
 
 def format_message(plan: dict) -> str:
@@ -131,6 +148,26 @@ def format_message(plan: dict) -> str:
     if volume is not None and volume < 5_000_000:
         thin = "⚠️ نقدشوندگی پایین — با حجم کم وارد شو\n"
 
+    size = plan.get("sizing")
+    if size:
+        brake = " 🔻ترمز افت" if size.get("braked") else ""
+        sizing_block = (
+            "───────────────\n"
+            f"💵 <b>سرمایه:</b> ${size['capital']:,.0f} · "
+            f"ریسک {size['risk_pct']:.2f}٪{brake} = ${size['risk_usd']:,.0f}\n"
+            f"<b>حجم پوزیشن:</b> ${size['notional']:,.0f}\n"
+            f"<b>اهرم:</b> {size['leverage']}× · <b>مارجین:</b> ${size['margin']:,.0f}"
+            f" ({size['margin_pct']:.1f}٪ حساب)\n"
+            f"<b>اگر حد ضرر بخورد:</b> −${size['risk_usd']:,.0f}\n"
+        )
+    else:
+        sizing_block = (
+            "───────────────\n"
+            f"اهرم: حداکثر {plan['max_lev']}× · "
+            f"اگر حد ضرر بخورد {plan['loss_at_max_lev']:.0f}٪ مارجین\n"
+            "برای دیدن حجم و مارجین، دستور /capital را بزن\n"
+        )
+
     return (
         f"🔔 <b>سیگنال {plan['symbol']}</b>\n"
         "───────────────\n"
@@ -141,7 +178,7 @@ def format_message(plan: dict) -> str:
         "───────────────\n"
         f"{volume_line}"
         f"کندل ۴ ساعته: {plan['candle']} UTC · RSI {plan['rsi']:.0f}\n"
-        f"اهرم: حداکثر {plan['max_lev']}× · اگر حد ضرر بخورد {plan['loss_at_max_lev']:.0f}٪ مارجین\n"
+        f"{sizing_block}"
         f"{thin}"
         "───────────────\n"
         f"{PAPER_BANNER}"
@@ -161,7 +198,7 @@ def save_state(state: dict) -> None:
         json.dump(state, handle, indent=2, ensure_ascii=False)
 
 
-def scan_one(symbol: str, regime: int) -> dict | None:
+def scan_one(symbol: str, regime: int, acct: dict) -> dict | None:
     """Return a plan if this symbol qualifies, otherwise None."""
     frame = candles_to_frame(fetch_klines(symbol, INTERVAL, LOOKBACK_DAYS))
     if len(frame) < 220:
@@ -170,11 +207,21 @@ def scan_one(symbol: str, regime: int) -> dict | None:
     side = int(ema_cross_20_50(frame).iloc[-1])
     if side == 0 or side != regime:
         return None
-    return build_plan(symbol, frame, side)
+    return build_plan(symbol, frame, side, acct)
 
 
 def main(argv: list[str]) -> int:
     do_send = "--send" in argv
+
+    acct = account.load()
+    if float(acct.get("capital") or 0) > 0:
+        risk_pct, braked = account.effective_risk(acct)
+        print(
+            f"account: ${acct['capital']:,.0f} · risk {risk_pct * 100:.2f}%"
+            f"{' (drawdown brake active)' if braked else ''}"
+        )
+    else:
+        print("account: not set - signals will show percentages only (send /capital to the bot)")
 
     print("checking market regime...")
     regime = btc_regime()
@@ -202,7 +249,7 @@ def main(argv: list[str]) -> int:
     failures = 0
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(scan_one, symbol, regime): symbol for symbol in symbols}
+        futures = {pool.submit(scan_one, symbol, regime, acct): symbol for symbol in symbols}
         for future in as_completed(futures):
             symbol = futures[future]
             try:
