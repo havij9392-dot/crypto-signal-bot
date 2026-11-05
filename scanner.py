@@ -328,10 +328,13 @@ def main(argv: list[str]) -> int:
     #    closed in the last 4 hours is reported in this run
     book = papertrade.load()
     closed = papertrade.update(book)
-    papertrade.save(book)
     for trade in closed:
         print(f"  paper {trade['symbol']:<12} {trade['reason']:<8} {trade['r']:+.2f}R")
         announce_close(trade, recipients, do_send)
+    # Saved only after the results went out. If the run dies in between, the
+    # trade is still open in the file, so the next scan replays the result - a
+    # duplicate is better than a result nobody ever hears about.
+    papertrade.save(book)
 
     print("checking market regime...")
     regime = btc_regime()
