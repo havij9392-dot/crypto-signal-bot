@@ -101,6 +101,9 @@ def load() -> dict:
     if not data["owner"]:
         data["owner"] = owner_id()
     _migrate(data)
+    # if the owner's chat id ever changes, he must not be locked out of his own bot
+    if data["owner"] and data["owner"] not in data["users"]:
+        data["users"][data["owner"]] = new_user("امیر")
     return data
 
 

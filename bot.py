@@ -215,9 +215,14 @@ def money(value: float) -> str:
 # ---------------------------------------------------------------- utilities
 
 
+PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
 def parse_amount(text: str) -> float | None:
     cleaned = (
-        text.replace(",", "")
+        text.translate(PERSIAN_DIGITS)
+        .replace("٫", ".")
+        .replace(",", "")
         .replace("٬", "")
         .replace("$", "")
         .replace("٪", "")
@@ -228,7 +233,10 @@ def parse_amount(text: str) -> float | None:
     match = re.search(r"\d+(?:\.\d+)?", cleaned)
     if not match:
         return None
-    value = float(match.group())
+    try:
+        value = float(match.group())
+    except ValueError:
+        return None
     return value if value > 0 else None
 
 
@@ -373,13 +381,18 @@ def apply_risk(data: dict, chat_id: str, amount: float, message_id: int | None) 
 
 
 def handle_callback(callback: dict, data: dict) -> None:
-    chat_id = str(callback["message"]["chat"]["id"])
-    message_id = callback["message"]["message_id"]
+    message = callback.get("message")
+    if not message:
+        _call("answerCallbackQuery", {"callback_query_id": callback["id"]})
+        return
+
+    chat_id = str(message["chat"]["id"])
+    message_id = message["message_id"]
     payload = callback.get("data", "")
 
     # A button under a signal message must open a fresh menu: editing it would
     # overwrite the signal itself, and that message is the user's record.
-    if "سیگنال" in (callback["message"].get("text") or ""):
+    if "سیگنال" in (message.get("text") or ""):
         message_id = None
 
     _call("answerCallbackQuery", {"callback_query_id": callback["id"]})
