@@ -30,6 +30,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Diagnose environment
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          {
+            echo "### Environment check"
+            echo ""
+            echo "| item | result |"
+            echo "|---|---|"
+            echo "| runner region | $RUNNER_OS / $(curl -s -m 10 https://ipinfo.io/country || echo unknown) |"
+            code=$(curl -s -o /tmp/fapi.txt -w "%{http_code}" -m 20 https://fapi.binance.com/fapi/v1/ping || echo 000)
+            echo "| binance fapi ping | HTTP $code |"
+            body=$(head -c 200 /tmp/fapi.txt 2>/dev/null | tr -d '\n' || echo none)
+            echo "| binance response | \`$body\` |"
+            code2=$(curl -s -o /dev/null -w "%{http_code}" -m 20 https://api.bybit.com/v5/market/time || echo 000)
+            echo "| bybit ping | HTTP $code2 |"
+            if [ -n "$TELEGRAM_BOT_TOKEN" ]; then echo "| telegram token | present |"; else echo "| telegram token | **MISSING** |"; fi
+            if [ -n "$TELEGRAM_CHAT_ID" ]; then echo "| telegram chat id | present |"; else echo "| telegram chat id | **MISSING** |"; fi
+          } >> $GITHUB_STEP_SUMMARY
+
       - name: Scan market and send signals
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
