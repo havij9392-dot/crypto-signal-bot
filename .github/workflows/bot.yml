@@ -17,6 +17,8 @@ on:
       - "users.py"
       - "account.py"
       - "papertrade.py"
+      - "config.py"
+      - "notify.py"
       - ".github/workflows/bot.yml"
   workflow_dispatch:
 
