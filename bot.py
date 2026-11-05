@@ -355,6 +355,27 @@ def parse_amount(text: str) -> float | None:
     return value if value > 0 else None
 
 
+AWAIT_TTL = 600  # seconds a "send me a number" question stays open
+
+
+def set_awaiting(user: dict, kind: str) -> None:
+    user["awaiting"] = kind
+    user["awaiting_at"] = int(time.time())
+
+
+def current_awaiting(user: dict) -> str | None:
+    """A question left open for hours must not swallow the next stray number."""
+    kind = user.get("awaiting")
+    if not kind:
+        return None
+    started = int(user.get("awaiting_at") or 0)
+    if started and time.time() - started > AWAIT_TTL:
+        user["awaiting"] = None
+        user["awaiting_at"] = 0
+        return None
+    return kind
+
+
 def arg_after(text: str, command: str) -> str:
     """Whatever follows the command, with or without a space: '/equity200' works."""
     return text[len(command):].strip()
@@ -568,7 +589,7 @@ def handle_callback(callback: dict, data: dict) -> None:
         _, mode, value = payload.split(":", 2)
         if mode == "risk":
             if value == "custom":
-                user["awaiting"] = "risk"
+                set_awaiting(user, "risk")
                 users.save(data)
                 show(
                     chat_id,
@@ -580,7 +601,7 @@ def handle_callback(callback: dict, data: dict) -> None:
             apply_risk(data, chat_id, float(value), message_id)
             return
         if value == "custom":
-            user["awaiting"] = "margin"
+            set_awaiting(user, "margin")
             users.save(data)
             show(
                 chat_id,
@@ -623,7 +644,7 @@ def handle_callback(callback: dict, data: dict) -> None:
     if payload.startswith("cap:"):
         choice = payload.split(":", 1)[1]
         if choice == "custom":
-            user["awaiting"] = "capital"
+            set_awaiting(user, "capital")
             users.save(data)
             show(
                 chat_id,
@@ -638,7 +659,7 @@ def handle_callback(callback: dict, data: dict) -> None:
     if payload.startswith("risk:"):
         choice = payload.split(":", 1)[1]
         if choice == "custom":
-            user["awaiting"] = "risk"
+            set_awaiting(user, "risk")
             users.save(data)
             show(
                 chat_id,
@@ -653,7 +674,7 @@ def handle_callback(callback: dict, data: dict) -> None:
     if payload.startswith("eq:"):
         choice = payload.split(":", 1)[1]
         if choice == "custom":
-            user["awaiting"] = "equity"
+            set_awaiting(user, "equity")
             users.save(data)
             show(
                 chat_id,
@@ -762,7 +783,7 @@ def handle_message(message: dict, data: dict) -> None:
             )
             if code and users.redeem(data, code, chat_id, name):
                 user = users.get(data, chat_id)
-                user["awaiting"] = "capital"
+                set_awaiting(user, "capital")
                 users.save(data)
                 send_text(
                     chat_id, WELCOME.format(name=name) + BAR_HINT, reply=REPLY_MENU
@@ -794,7 +815,7 @@ def handle_message(message: dict, data: dict) -> None:
         return
 
     # ---------------------------------------------------- waiting for a number
-    awaiting = user.get("awaiting")
+    awaiting = current_awaiting(user)
     if awaiting and not text.startswith("/"):
         amount = parse_amount(text)
         if amount is None:
@@ -828,7 +849,7 @@ def handle_message(message: dict, data: dict) -> None:
                 reply=REPLY_MENU,
             )
             send_text(chat_id, render_capital(user), kb_capital())
-            user["awaiting"] = "capital"
+            set_awaiting(user, "capital")
             users.save(data)
             return
         send_text(chat_id, render_home(user, admin) + BAR_HINT, reply=REPLY_MENU)

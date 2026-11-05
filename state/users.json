@@ -5,12 +5,15 @@
   "users": {
     "6090974409": {
       "name": "امیر",
-      "capital": 9798.0,
+      "capital": 1000.0,
       "risk_pct": 1.0,
-      "peak": 9798.0,
+      "peak": 1000.0,
       "signals": true,
       "awaiting": null,
-      "joined": "2026-11-05T19:29:24Z"
+      "joined": "2026-11-05T19:29:24Z",
+      "mode": "risk",
+      "margin": 50.0,
+      "awaiting_at": 0
     }
   },
   "invites": {}
