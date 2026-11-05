@@ -182,8 +182,49 @@ cb(FRIEND, "eq:custom")
 show("friend types a new balance", msg(FRIEND, "1500"))
 assert friend["capital"] == 1500 and friend["peak"] == 2000
 
-show("friend picks risk 2%", cb(FRIEND, "risk:2"))
-assert friend["risk_pct"] == 2.0
+show("friend picks risk 2%", cb(FRIEND, "sz:risk:2"))
+assert friend["risk_pct"] == 2.0 and friend["mode"] == "risk"
+
+print("\n--- sizing modes ---")
+# risk mode: the stop always costs the same dollars
+small = account.sizing(1000, 0.01, 2.5)
+wide = account.sizing(1000, 0.01, 8.5)
+assert abs(small["risk_usd"] - 10) < 1e-9 and abs(wide["risk_usd"] - 10) < 1e-9
+assert wide["margin"] < small["margin"], "a wider stop must buy a smaller position"
+print(
+    f"   risk 1%  · stop 2.5% -> margin ${small['margin']:.0f} · loss $10"
+    f"   |   stop 8.5% -> margin ${wide['margin']:.0f} · loss $10"
+)
+
+# margin mode: the margin is fixed, so the loss floats
+m50 = account.sizing(1000, 0.01, 8.5, 50.0)
+m100 = account.sizing(1000, 0.01, 8.5, 100.0)
+print(
+    f"   margin $50  · stop 8.5% -> loss ${m50['risk_usd']:.0f}"
+    f" ({m50['risk_pct']:.1f}% of account)"
+)
+print(
+    f"   margin $100 · stop 8.5% -> loss ${m100['risk_usd']:.0f}"
+    f" ({m100['risk_pct']:.1f}% of account)"
+)
+assert m50["risk_usd"] > wide["risk_usd"], "margin mode must risk more than 1%"
+assert abs(m50["margin"] - 50) < 1e-6
+
+# never risk more than the whole account, however wide the stop
+wild = account.sizing(1000, 0.01, 40.0, 1000.0)
+assert wild["risk_usd"] <= 1000 + 1e-6, wild
+
+show("switch to fixed margin 50", cb(FRIEND, "sz:margin:50"))
+assert friend["mode"] == "margin" and friend["margin"] == 50.0
+sized = account.size_for(friend, 8.0)
+print(
+    f"   friend $5,000 · margin mode $50 · stop 8% -> loss ${sized['risk_usd']:.0f}"
+    f" ({sized['risk_pct']:.1f}%)"
+)
+assert sized["mode"] == "margin"
+
+show("switch back to risk 1%", cb(FRIEND, "sz:risk:1"))
+assert friend["mode"] == "risk" and friend["risk_pct"] == 1.0
 
 print("\n--- drawdown brake ---")
 msg(FRIEND, "/equity 1400")

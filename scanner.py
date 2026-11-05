@@ -136,21 +136,37 @@ def sizing_block(plan: dict, user: dict | None) -> str:
             "برای حجم و مارجین، دکمه «💰 سرمایه» را بزن\n"
         )
 
-    risk_pct, braked = account.effective_risk(user)
-    size = account.sizing(capital, risk_pct, plan["stop_pct"])
+    size = account.size_for(user, plan["stop_pct"])
     if not size:
         return "───────────────\n"
 
-    brake = " 🔻ترمز افت" if braked else ""
-    return (
-        "───────────────\n"
-        f"💵 <b>سرمایه:</b> ${capital:,.0f} · "
-        f"ریسک {risk_pct * 100:.2f}٪{brake} = ${size['risk_usd']:,.0f}\n"
-        f"<b>حجم پوزیشن:</b> ${size['notional']:,.0f}\n"
-        f"<b>اهرم:</b> {size['leverage']}× · <b>مارجین:</b> ${size['margin']:,.0f}"
-        f" ({size['margin_pct']:.1f}٪ حساب)\n"
-        f"<b>اگر حد ضرر بخورد:</b> −${size['risk_usd']:,.0f}\n"
+    brake = " 🔻ترمز افت" if size["braked"] else ""
+    if size["mode"] == "margin":
+        head = (
+            f"💵 <b>سرمایه:</b> ${capital:,.0f} · "
+            f"مارجین ثابت ${size['margin']:,.0f}{brake}\n"
+        )
+    else:
+        head = (
+            f"💵 <b>سرمایه:</b> ${capital:,.0f} · "
+            f"ریسک {size['risk_pct']:.2f}٪{brake} = ${size['risk_usd']:,.0f}\n"
+        )
+
+    body = (
+        head
+        + f"<b>حجم پوزیشن:</b> ${size['notional']:,.0f}\n"
+        + f"<b>اهرم:</b> {size['leverage']}× · <b>مارجین:</b> ${size['margin']:,.0f}"
+        + f" ({size['margin_pct']:.1f}٪ حساب)\n"
+        + f"<b>اگر حد ضرر بخورد:</b> −${size['risk_usd']:,.0f}"
+        + f" ({size['risk_pct']:.1f}٪ حساب)\n"
     )
+
+    if size["risk_pct"] > account.WARN_RISK_PCT:
+        body += (
+            f"⚠️ این معامله {size['risk_pct']:.1f}٪ حساب را در معرض خطر می‌گذارد — "
+            "بالای ۳٪ است\n"
+        )
+    return "───────────────\n" + body
 
 
 def format_message(plan: dict, user: dict | None = None) -> str:

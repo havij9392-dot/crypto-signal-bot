@@ -26,6 +26,12 @@ BRAKE_FACTOR = 0.25
 MAX_RISK_PCT = 10.0
 MIN_RISK_PCT = 0.1
 
+DEFAULT_MARGIN = 50.0
+MAX_MARGIN = 100_000.0
+
+# Above this share of the account the signal carries an explicit warning.
+WARN_RISK_PCT = 3.0
+
 
 def safe_leverage(stop_pct: float) -> int:
     """Highest leverage whose liquidation distance stays beyond the stop."""
@@ -68,15 +74,42 @@ def effective_risk(user: dict) -> tuple[float, bool]:
     return base, False
 
 
-def sizing(capital: float, risk_pct: float, stop_pct: float) -> dict:
-    """Turn a stop distance into position size, leverage and margin."""
+def sizing(
+    capital: float,
+    risk_pct: float,
+    stop_pct: float,
+    margin_target: float | None = None,
+) -> dict:
+    """Turn a stop distance into position size, leverage and margin.
+
+    Two modes:
+
+    risk mode (default) - the stop always costs the same number of dollars,
+        so a wide stop simply buys a smaller position. This is the mode the
+        5-month test was measured with.
+
+    margin mode - the user picks the dollars of margin instead, so the position
+        is bigger. Note what that does: with the leverage rule below, the risk
+        lands at roughly 0.8 x margin no matter how wide the stop is. $50 of
+        margin is about $40 of risk, which is 4% of a $1000 account - and the
+        5-month run drew down 91% at that level.
+    """
     if capital <= 0 or stop_pct <= 0:
         return {}
 
-    risk_usd = capital * risk_pct
-    notional = risk_usd / (stop_pct / 100.0)
     leverage = safe_leverage(stop_pct)
-    margin = notional / leverage
+
+    if margin_target:
+        margin = min(float(margin_target), capital)   # cannot post more than you have
+        notional = margin * leverage
+        # never let the stop cost more than the whole account
+        notional = min(notional, capital * 100.0 / stop_pct)
+        risk_usd = notional * stop_pct / 100.0
+        margin = notional / leverage
+    else:
+        risk_usd = capital * risk_pct
+        notional = risk_usd / (stop_pct / 100.0)
+        margin = notional / leverage
 
     return {
         "risk_usd": risk_usd,
@@ -84,8 +117,32 @@ def sizing(capital: float, risk_pct: float, stop_pct: float) -> dict:
         "leverage": leverage,
         "margin": margin,
         "margin_pct": margin / capital * 100,
+        "risk_pct": risk_usd / capital * 100,
         "loss_pct": min(100.0, stop_pct * leverage),
+        "mode": "margin" if margin_target else "risk",
     }
+
+
+def size_for(user: dict, stop_pct: float) -> dict:
+    """Size one trade for one user, applying the mode and the drawdown brake."""
+    capital = float(user.get("capital") or 0.0)
+    if capital <= 0 or stop_pct <= 0:
+        return {}
+
+    risk_pct, braked = effective_risk(user)
+    mode = user.get("mode") or "risk"
+    margin_target = None
+    if mode == "margin":
+        margin_target = float(user.get("margin") or DEFAULT_MARGIN)
+        if braked:
+            margin_target *= BRAKE_FACTOR
+
+    size = sizing(capital, risk_pct, stop_pct, margin_target)
+    if size:
+        size["capital"] = capital
+        size["braked"] = braked
+        size["mode"] = mode
+    return size
 
 
 def describe(user: dict) -> str:
@@ -107,8 +164,17 @@ def describe(user: dict) -> str:
         "───────────────",
         f"<b>سرمایه فعلی:</b> ${capital:,.0f}",
         f"<b>بیشترین سرمایه:</b> ${peak:,.0f}",
-        f"<b>ریسک هر معامله:</b> {risk_pct * 100:.2f}٪ = ${capital * risk_pct:,.0f}",
     ]
+    if (user.get("mode") or "risk") == "margin":
+        margin = float(user.get("margin") or DEFAULT_MARGIN)
+        lines.append(f"<b>مارجین هر معامله:</b> ${margin:,.0f} (ثابت)")
+        lines.append(
+            "<i>ریسک واقعی با فاصله حد ضرر عوض می‌شود — روی هر سیگنال نوشته می‌شود.</i>"
+        )
+    else:
+        lines.append(
+            f"<b>ریسک هر معامله:</b> {risk_pct * 100:.2f}٪ = ${capital * risk_pct:,.0f}"
+        )
     if braked:
         lines.append("🔻 <b>ترمز افت فعال است</b> — حساب زیر ۷۵٪ اوجش است")
     if peak > capital:

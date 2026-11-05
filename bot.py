@@ -134,7 +134,7 @@ def kb_main(user: dict, admin: bool) -> dict:
     on = user.get("signals", True)
     rows = [
         [b("💰 سرمایه", "m:cap"), b("📊 وضعیت", "m:status")],
-        [b("⚙️ ریسک", "m:risk"), b("📈 موجودی", "m:eq")],
+        [b("🎚 اندازه پوزیشن", "m:size"), b("📈 موجودی", "m:eq")],
         [b("📉 عملکرد", "m:perf"), b("❓ راهنما", "m:help")],
         [b(f"🔔 سیگنال‌ها: {'روشن' if on else 'خاموش'}", "sig:toggle")],
     ]
@@ -167,6 +167,72 @@ def kb_risk() -> dict:
             [b("⬅️ برگشت", "m:home")],
         ]
     }
+
+
+def kb_size(user: dict) -> dict:
+    mode = user.get("mode") or "risk"
+    risk = float(user.get("risk_pct") or 1.0)
+    margin = float(user.get("margin") or 50.0)
+
+    def mark(label: str, active: bool) -> str:
+        return f"✅ {label}" if active else label
+
+    return {
+        "inline_keyboard": [
+            [
+                b(mark("ریسک ۱٪", mode == "risk" and risk == 1.0), "sz:risk:1"),
+                b(mark("ریسک ۲٪", mode == "risk" and risk == 2.0), "sz:risk:2"),
+            ],
+            [
+                b(mark("مارجین ۵۰$", mode == "margin" and margin == 50.0), "sz:margin:50"),
+                b(mark("مارجین ۱۰۰$", mode == "margin" and margin == 100.0), "sz:margin:100"),
+            ],
+            [b("✏️ ریسک دلخواه", "sz:risk:custom"), b("✏️ مارجین دلخواه", "sz:margin:custom")],
+            [b("⬅️ برگشت", "m:home")],
+        ]
+    }
+
+
+def render_size(user: dict) -> str:
+    capital = float(user.get("capital") or 0)
+    mode = user.get("mode") or "risk"
+    risk = float(user.get("risk_pct") or 1.0)
+    margin = float(user.get("margin") or 50.0)
+
+    if mode == "margin":
+        now = f"مارجین ثابت ${margin:,.0f}"
+    else:
+        now = f"ریسک ثابت {risk:.2f}٪"
+
+    body = (
+        "<b>🎚 اندازه پوزیشن</b>\n"
+        "───────────────\n"
+        f"<b>الان:</b> {now}\n\n"
+        "<b>ریسک ثابت</b> — در هر معامله همان مقدار دلار را خطر می‌کنی. حد ضررِ دورتر "
+        "پوزیشن کوچک‌تری می‌خرد. این همان حالتی است که ۵ ماه تست با آن اندازه‌گیری شد.\n\n"
+        "<b>مارجین ثابت</b> — خودت دلار مارجین را می‌گویی، پس پوزیشن بزرگ‌تر می‌شود. "
+        "اما ضرر هم بزرگ می‌شود و با فاصله حد ضرر عوض می‌شود.\n"
+    )
+
+    if capital > 0:
+        body += "\n<b>با سرمایه فعلی و حد ضرر ۸٪:</b>\n"
+        sample = account.sizing(capital, risk / 100.0, 8.0)
+        body += (
+            f"• ریسک {risk:.2f}٪ → مارجین ${sample['margin']:,.0f} · "
+            f"ضرر ${sample['risk_usd']:,.0f}\n"
+        )
+        big = account.sizing(capital, risk, 8.0, 50.0)
+        body += (
+            f"• مارجین $50 → ضرر ${big['risk_usd']:,.0f} "
+            f"({big['risk_pct']:.1f}٪ حساب)\n"
+        )
+        big100 = account.sizing(capital, risk, 8.0, 100.0)
+        body += (
+            f"• مارجین $100 → ضرر ${big100['risk_usd']:,.0f} "
+            f"({big100['risk_pct']:.1f}٪ حساب)\n"
+        )
+        body += "\n<i>در تست ۵ ماهه، ریسک ۴٪ افت ۹۱٪ داد و ریسک ۸٪ حساب را نابود کرد.</i>"
+    return body
 
 
 def kb_equity() -> dict:
@@ -227,7 +293,11 @@ HELP_TEXT = (
     "پس برداشت به‌عنوان ضرر حساب نمی‌شود.\n\n"
     "<b>📈 موجودی</b> — وقتی موجودی با سود یا زیان معاملات عوض شده. اوج حساب دست‌نخورده "
     "می‌ماند تا ترمز افت افت واقعی را ببیند.\n\n"
-    "<b>⚙️ ریسک</b> — درصدی از سرمایه که در هر معامله خطر می‌کنی. ۱٪ نقطه شروع خوبی است.\n\n"
+    "<b>🎚 اندازه پوزیشن</b> — دو حالت دارد:\n"
+    "«ریسک ثابت» یعنی در هر معامله همان مقدار دلار را خطر می‌کنی؛ حد ضرر دورتر، "
+    "پوزیشن کوچک‌تر می‌خرد.\n"
+    "«مارجین ثابت» یعنی خودت دلار مارجین را می‌گویی، پس پوزیشن بزرگ‌تر و ضرر هم "
+    "بزرگ‌تر می‌شود.\n\n"
     "<b>📉 عملکرد</b> — کارنامه واقعی استراتژی روی سیگنال‌های ارسال‌شده.\n\n"
     "<b>🔔 سیگنال‌ها</b> — روشن یا خاموش کردن دریافت سیگنال.\n\n"
     "<b>اهرم</b> — از فاصله حد ضرر حساب می‌شود و هرگز از ۱۰× بالاتر نمی‌رود، "
@@ -415,9 +485,19 @@ def apply_equity(data: dict, chat_id: str, amount: float, message_id: int | None
 def apply_risk(data: dict, chat_id: str, amount: float, message_id: int | None) -> None:
     user = data["users"][chat_id]
     user["risk_pct"] = round(min(account.MAX_RISK_PCT, max(account.MIN_RISK_PCT, amount)), 2)
+    user["mode"] = "risk"
     user["awaiting"] = None
     users.save(data)
-    show(chat_id, "✅ ذخیره شد.\n\n" + render_risk(user), kb_risk(), message_id)
+    show(chat_id, "✅ ذخیره شد.\n\n" + render_size(user), kb_size(user), message_id)
+
+
+def apply_margin(data: dict, chat_id: str, amount: float, message_id: int | None) -> None:
+    user = data["users"][chat_id]
+    user["mode"] = "margin"
+    user["margin"] = round(min(account.MAX_MARGIN, max(1.0, amount)), 2)
+    user["awaiting"] = None
+    users.save(data)
+    show(chat_id, "✅ ذخیره شد.\n\n" + render_size(user), kb_size(user), message_id)
 
 
 def handle_callback(callback: dict, data: dict) -> None:
@@ -454,6 +534,38 @@ def handle_callback(callback: dict, data: dict) -> None:
 
     if payload == "m:risk":
         show(chat_id, render_risk(user), kb_risk(), message_id)
+        return
+
+    if payload == "m:size":
+        show(chat_id, render_size(user), kb_size(user), message_id)
+        return
+
+    if payload.startswith("sz:"):
+        _, mode, value = payload.split(":", 2)
+        if mode == "risk":
+            if value == "custom":
+                user["awaiting"] = "risk"
+                users.save(data)
+                show(
+                    chat_id,
+                    "درصد ریسک را بنویس.\nمثال: <code>1.5</code>",
+                    kb_back("m:size"),
+                    message_id,
+                )
+                return
+            apply_risk(data, chat_id, float(value), message_id)
+            return
+        if value == "custom":
+            user["awaiting"] = "margin"
+            users.save(data)
+            show(
+                chat_id,
+                "دلار مارجین هر معامله را بنویس.\nمثال: <code>75</code>",
+                kb_back("m:size"),
+                message_id,
+            )
+            return
+        apply_margin(data, chat_id, float(value), message_id)
         return
 
     if payload == "m:eq":
@@ -674,6 +786,8 @@ def handle_message(message: dict, data: dict) -> None:
             apply_equity(data, chat_id, amount, None)
         elif awaiting == "risk":
             apply_risk(data, chat_id, amount, None)
+        elif awaiting == "margin":
+            apply_margin(data, chat_id, amount, None)
         return
 
     if awaiting:

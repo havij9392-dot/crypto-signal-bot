@@ -60,6 +60,8 @@ def new_user(name: str, capital: float = 0.0, risk_pct: float = 1.0) -> dict:
         "capital": round(float(capital), 2),
         "risk_pct": round(float(risk_pct), 2),
         "peak": round(float(capital), 2),
+        "mode": "risk",          # "risk" = fixed risk, "margin" = fixed margin
+        "margin": 50.0,
         "signals": True,
         "awaiting": None,
         "joined": _now(),
@@ -101,6 +103,9 @@ def load() -> dict:
     if not data["owner"]:
         data["owner"] = owner_id()
     _migrate(data)
+    for user in data["users"].values():
+        user.setdefault("mode", "risk")
+        user.setdefault("margin", 50.0)
     # if the owner's chat id ever changes, he must not be locked out of his own bot
     if data["owner"] and data["owner"] not in data["users"]:
         data["users"][data["owner"]] = new_user("امیر")
