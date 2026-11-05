@@ -338,4 +338,45 @@ assert abs(s["pf"] - 3.0) < 1e-9
 print("   stats:", s)
 print(plain(papertrade.summary(book)))
 
+print("\n--- late signals and heartbeat ---")
+import pandas as pd
+
+import scanner
+
+frame = pd.DataFrame(
+    {
+        "open_time": ["2026-11-05 08:00", "2026-11-05 12:00", "2026-11-05 16:00"],
+        "close": [100.0, 101.0, 102.0],
+        "atr": [3.0, 3.0, 3.0],
+        "rsi": [50.0, 55.0, 60.0],
+    }
+)
+
+fresh = scanner.build_plan("XUSDT", frame, 1, -1)
+late = scanner.build_plan("XUSDT", frame, 1, -2)
+print("   fresh signal labels candle:", fresh["candle"], "| late:", fresh["late"])
+print("   late signal labels candle:", late["candle"], "| late:", late["late"])
+assert fresh["candle"] == "2026-11-05 16:00" and fresh["late"] is False
+assert late["candle"] == "2026-11-05 12:00" and late["late"] is True
+assert late["price"] == 102.0, "a late signal must still quote the price you can get now"
+assert late["rsi"] == 55.0, "but its indicator values belong to the signal candle"
+
+beat = os.path.join(tempfile.mkdtemp(), "heartbeat.json")
+bot.HEARTBEAT = beat
+
+print("   no heartbeat yet:", bot.last_scan_line())
+assert "نامشخص" in bot.last_scan_line()
+
+now = datetime.now(timezone.utc)
+with open(beat, "w", encoding="utf-8") as handle:
+    json.dump({"last_scan": now.strftime("%Y-%m-%dT%H:%M:%SZ")}, handle)
+print("   fresh heartbeat:", bot.last_scan_line())
+assert "دقیقه پیش" in bot.last_scan_line()
+
+old = now - timedelta(hours=5)
+with open(beat, "w", encoding="utf-8") as handle:
+    json.dump({"last_scan": old.strftime("%Y-%m-%dT%H:%M:%SZ")}, handle)
+print("   stale heartbeat:", bot.last_scan_line())
+assert "عقب است" in bot.last_scan_line()
+
 print("\nALL ASSERTIONS PASSED")

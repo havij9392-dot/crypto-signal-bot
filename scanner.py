@@ -97,7 +97,15 @@ def btc_regime() -> int:
     return 1 if frame["close"].iloc[-1] > frame["ema200"].iloc[-1] else -1
 
 
-def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
+def build_plan(
+    symbol: str, frame: pd.DataFrame, side: int, candle_offset: int = -1
+) -> dict | None:
+    """Entry and stop come from the live bar; the label comes from the signal bar.
+
+    For a normal signal both are the same candle. When a scan was delayed past
+    the next close, candle_offset is -2: the cross happened one candle ago, but
+    the price the user can actually get is the current one.
+    """
     price = float(frame["close"].iloc[-1])
     atr = float(frame["atr"].iloc[-1])
     risk = SL_ATR * atr
@@ -112,8 +120,9 @@ def build_plan(symbol: str, frame: pd.DataFrame, side: int) -> dict | None:
         "price": price,
         "stop_pct": stop_pct,
         "target_pct": RR * risk / price * 100,
-        "rsi": float(frame["rsi"].iloc[-1]),
-        "candle": frame["open_time"].iloc[-1],
+        "rsi": float(frame["rsi"].iloc[candle_offset]),
+        "candle": frame["open_time"].iloc[candle_offset],
+        "late": candle_offset != -1,
         "max_lev": account.safe_leverage(stop_pct),
         "loss_at_max_lev": min(100.0, stop_pct * account.safe_leverage(stop_pct)),
     }
@@ -184,6 +193,9 @@ def format_message(plan: dict, user: dict | None = None) -> str:
     if volume is not None and volume < 5_000_000:
         thin = "⚠️ نقدشوندگی پایین — با حجم کم وارد شو\n"
 
+    if plan.get("late"):
+        thin += "⚠️ این ستاپ از کندل قبلی است — اسکن دیر رسید\n"
+
     return (
         f"🔔 <b>سیگنال {plan['symbol']}</b>\n"
         "───────────────\n"
@@ -232,16 +244,37 @@ def save_state(state: dict) -> None:
         json.dump(state, handle, indent=2, ensure_ascii=False)
 
 
+def write_heartbeat(symbols: int, signals: int, regime: int) -> None:
+    """A timestamp the bot can read, so a dead scanner is visible in the chat."""
+    payload = {
+        "last_scan": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "symbols": symbols,
+        "signals": signals,
+        "regime": regime,
+    }
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(os.path.join(STATE_DIR, "heartbeat.json"), "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
 def scan_one(symbol: str, regime: int) -> dict | None:
     """Return a plan if this symbol qualifies, otherwise None."""
     frame = candles_to_frame(fetch_klines(symbol, INTERVAL, LOOKBACK_DAYS))
     if len(frame) < 220:
         return None
 
-    side = int(ema_cross_20_50(frame).iloc[-1])
-    if side == 0 or side != regime:
-        return None
-    return build_plan(symbol, frame, side)
+    signals = ema_cross_20_50(frame)
+
+    # A scan delayed past the next close would silently lose the cross, because
+    # only the newest candle was ever read. Look one candle back before giving
+    # up - GitHub regularly runs these jobs an hour late.
+    for offset in (-1, -2):
+        side = int(signals.iloc[offset])
+        if side != 0 and side == regime:
+            plan = build_plan(symbol, frame, side, offset)
+            if plan:
+                return plan
+    return None
 
 
 def main(argv: list[str]) -> int:
@@ -319,8 +352,6 @@ def main(argv: list[str]) -> int:
         found += 1
         print(f"  {symbol:<12} SIGNAL {'LONG' if plan['side'] > 0 else 'SHORT'}")
 
-        papertrade.record(book, plan)
-
         if do_send:
             delivered = 0
             for chat_id, user in recipients:
@@ -330,13 +361,19 @@ def main(argv: list[str]) -> int:
                     keyboard=SIGNAL_KEYBOARD,
                 ):
                     delivered += 1
-            state[symbol] = plan["candle"]
-            save_state(state)
+            if delivered:
+                state[symbol] = plan["candle"]
+                save_state(state)
+                # only a signal somebody actually received belongs in the book
+                papertrade.record(book, plan)
+            else:
+                print(f"  {symbol:<12} nobody received it, will retry next scan")
             print(f"  {symbol:<12} sent to {delivered}/{len(recipients)} user(s)")
         else:
             print(format_message(plan).replace("<b>", "").replace("</b>", ""))
 
     papertrade.save(book)
+    write_heartbeat(len(symbols), found, regime)
 
     print(
         f"\nscan finished - {found} new signal(s), "

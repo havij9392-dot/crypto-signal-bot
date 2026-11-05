@@ -26,11 +26,13 @@ than kept alive forever.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 
 import account
 import papertrade
@@ -38,6 +40,9 @@ import users
 from notify import _credentials
 
 API = "https://api.telegram.org/bot{token}/{method}"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HEARTBEAT = os.path.join(HERE, "state", "heartbeat.json")
 
 
 # ---------------------------------------------------------------- transport
@@ -373,6 +378,25 @@ def notify_owner(data: dict, text: str) -> None:
 # ---------------------------------------------------------------- rendering
 
 
+def last_scan_line() -> str:
+    """How long ago the scanner last ran - so a dead scanner is visible in chat."""
+    try:
+        with open(HEARTBEAT, encoding="utf-8") as handle:
+            beat = json.load(handle)
+        when = datetime.strptime(beat["last_scan"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (OSError, KeyError, ValueError):
+        return "📡 آخرین اسکن: نامشخص"
+
+    minutes = int((datetime.now(timezone.utc) - when).total_seconds() // 60)
+    if minutes < 0:
+        minutes = 0
+    if minutes < 90:
+        return f"📡 آخرین اسکن: {minutes} دقیقه پیش"
+    return f"⚠️ آخرین اسکن: {minutes // 60} ساعت پیش — اسکن عقب است"
+
+
 def render_home(user: dict, admin: bool) -> str:
     capital = float(user.get("capital") or 0)
     risk_pct, braked = account.effective_risk(user)
@@ -384,7 +408,7 @@ def render_home(user: dict, admin: bool) -> str:
         )
     else:
         line += " · سرمایه ثبت نشده"
-    return f"{HOME_TEXT}\n───────────────\n{line}"
+    return f"{HOME_TEXT}\n───────────────\n{line}\n{last_scan_line()}"
 
 
 def render_capital(user: dict) -> str:
