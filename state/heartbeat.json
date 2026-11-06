@@ -1,6 +1,8 @@
 {
-  "last_scan": "2026-11-06T08:54:33Z",
+  "last_scan": "2026-11-06T09:43:37Z",
   "symbols": 107,
-  "signals": 2,
-  "regime": -1
+  "signals": 0,
+  "blocked": 0,
+  "regime": -1,
+  "breadth": 0.114
 }
