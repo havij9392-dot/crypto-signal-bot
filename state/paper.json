@@ -27,22 +27,6 @@
       }
     },
     {
-      "id": "LABUSDT@2026-11-05 20:00",
-      "symbol": "LABUSDT",
-      "side": -1,
-      "entry": 0.04089,
-      "stop_pct": 12.469409804178168,
-      "target_pct": 37.408229412534496,
-      "opened": "2026-11-05 20:00",
-      "opened_at": "2026-11-06 00:59",
-      "recipients": {
-        "6090974409": {
-          "message_id": 63,
-          "risk_usd": 97.98
-        }
-      }
-    },
-    {
       "id": "XRPUSDT@2026-11-05 20:00",
       "symbol": "XRPUSDT",
       "side": -1,
@@ -73,7 +57,61 @@
           "risk_usd": 97.98
         }
       }
+    },
+    {
+      "id": "CASHCATUSDT@2026-11-06 04:00",
+      "symbol": "CASHCATUSDT",
+      "side": -1,
+      "entry": 0.09355,
+      "stop_pct": 17.423959435413902,
+      "target_pct": 52.2718783062417,
+      "opened": "2026-11-06 04:00",
+      "opened_at": "2026-11-06 08:54",
+      "recipients": {
+        "6090974409": {
+          "message_id": 68,
+          "risk_usd": 97.98
+        }
+      }
+    },
+    {
+      "id": "ETHUSDT@2026-11-06 04:00",
+      "symbol": "ETHUSDT",
+      "side": -1,
+      "entry": 2227.28,
+      "stop_pct": 5.030974610385563,
+      "target_pct": 15.092923831156691,
+      "opened": "2026-11-06 04:00",
+      "opened_at": "2026-11-06 08:54",
+      "recipients": {
+        "6090974409": {
+          "message_id": 69,
+          "risk_usd": 97.98
+        }
+      }
     }
   ],
-  "closed": []
+  "closed": [
+    {
+      "id": "LABUSDT@2026-11-05 20:00",
+      "symbol": "LABUSDT",
+      "side": -1,
+      "entry": 0.04089,
+      "stop_pct": 12.469409804178168,
+      "target_pct": 37.408229412534496,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 63,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 0.045988741668928454,
+      "closed": "2026-11-06 04:00",
+      "closed_at": "2026-11-06 08:54",
+      "reason": "stop",
+      "r": -1.0
+    }
+  ]
 }
