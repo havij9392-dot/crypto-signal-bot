@@ -38,11 +38,13 @@ from datetime import datetime, timezone
 import pandas as pd
 
 import account
+import committee
 import papertrade
 import users
 from config import (
     INTERVAL,
     LOOKBACK_DAYS,
+    MAX_OPEN_TRADES,
     MIN_STOP_PCT,
     MIN_TURNOVER_USD,
     PAPER_BANNER,
@@ -92,10 +94,18 @@ def candles_to_frame(raw: list[list]) -> pd.DataFrame:
     return add_all(frame)
 
 
-def btc_regime() -> int:
-    """+1 when Bitcoin is above its own 4h EMA200, -1 when below."""
+def btc_regime() -> tuple[int, float]:
+    """Bitcoin's direction, and how far it sits from its own EMA200 in ATR.
+
+    The regime agent needs the distance: being 0.1 ATR above the average is not
+    the same statement as being 3 ATR above it.
+    """
     frame = candles_to_frame(fetch_klines("BTCUSDT", REGIME_INTERVAL, REGIME_DAYS))
-    return 1 if frame["close"].iloc[-1] > frame["ema200"].iloc[-1] else -1
+    close = float(frame["close"].iloc[-1])
+    ema200 = float(frame["ema200"].iloc[-1])
+    atr = float(frame["atr"].iloc[-1])
+    gap = (close - ema200) / atr if atr > 0 else 0.0
+    return (1 if close > ema200 else -1), gap
 
 
 def build_plan(
@@ -179,6 +189,26 @@ def sizing_block(plan: dict, user: dict | None) -> str:
     return "───────────────\n" + body
 
 
+def committee_block(plan: dict) -> str:
+    """The team's reasoning, one line per member."""
+    decision = plan.get("decision") or plan.get("committee")
+    if not decision:
+        return ""
+
+    votes = decision["votes"]
+    head = f"🏛 <b>هیئت ورود:</b> {decision['approved']} از {len(votes)} موافق"
+    lines = [head]
+    for vote in votes:
+        if vote["vote"] == committee.VETO:
+            mark = "⛔"
+        elif vote["vote"] == committee.APPROVE:
+            mark = "✅"
+        else:
+            mark = "▫️"
+        lines.append(f"{mark} {vote['name']}: {vote['reason']}")
+    return "\n".join(lines) + "\n"
+
+
 def format_message(plan: dict, user: dict | None = None) -> str:
     arrow = "🟢 خرید (لانگ)" if plan["side"] > 0 else "🔴 فروش (شورت)"
 
@@ -210,6 +240,8 @@ def format_message(plan: dict, user: dict | None = None) -> str:
         f" · RSI {plan['rsi']:.0f}\n"
         f"{sizing_block(plan, user)}"
         f"{thin}"
+        "───────────────\n"
+        f"{committee_block(plan)}"
         "───────────────\n"
         f"{PAPER_BANNER}"
     )
@@ -286,25 +318,33 @@ def save_state(state: dict) -> None:
         json.dump(state, handle, indent=2, ensure_ascii=False)
 
 
-def write_heartbeat(symbols: int, signals: int, regime: int) -> None:
+def write_heartbeat(symbols: int, signals: int, regime: int, blocked: int = 0,
+                    breadth: float | None = None) -> None:
     """A timestamp the bot can read, so a dead scanner is visible in the chat."""
     payload = {
         "last_scan": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "symbols": symbols,
         "signals": signals,
+        "blocked": blocked,
         "regime": regime,
+        "breadth": round(breadth, 3) if breadth is not None else None,
     }
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(os.path.join(STATE_DIR, "heartbeat.json"), "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
 
 
-def scan_one(symbol: str, regime: int) -> dict | None:
-    """Return a plan if this symbol qualifies, otherwise None."""
+def scan_one(symbol: str, regime: int, context: dict) -> tuple[dict | None, bool | None]:
+    """Return (plan or None, is this symbol above its own EMA200?).
+
+    The second value feeds the breadth agent: it needs the whole market, so every
+    symbol has to report in, not just the ones that produced a signal.
+    """
     frame = candles_to_frame(fetch_klines(symbol, INTERVAL, LOOKBACK_DAYS))
     if len(frame) < 220:
-        return None
+        return None, None
 
+    above = bool(frame["close"].iloc[-1] > frame["ema200"].iloc[-1])
     signals = ema_cross_20_50(frame)
 
     # A scan delayed past the next close would silently lose the cross, because
@@ -315,8 +355,11 @@ def scan_one(symbol: str, regime: int) -> dict | None:
         if side != 0 and side == regime:
             plan = build_plan(symbol, frame, side, offset)
             if plan:
-                return plan
-    return None
+                # the committee votes at the signal bar, so it sees exactly what
+                # was known when the cross happened
+                plan["committee"] = committee.judge(frame, len(frame) + offset, side)
+                return plan, above
+    return None, above
 
 
 def main(argv: list[str]) -> int:
@@ -339,8 +382,12 @@ def main(argv: list[str]) -> int:
     papertrade.save(book)
 
     print("checking market regime...")
-    regime = btc_regime()
-    print(f"BTC regime: {'bullish (longs only)' if regime > 0 else 'bearish (shorts only)'}")
+    regime, btc_gap = btc_regime()
+    context = {"btc_gap_atr": btc_gap}
+    print(
+        f"BTC regime: {'bullish (longs only)' if regime > 0 else 'bearish (shorts only)'}"
+        f" · {btc_gap:+.2f} ATR from EMA200"
+    )
 
     symbols = top_symbols()
 
@@ -363,20 +410,31 @@ def main(argv: list[str]) -> int:
     print(f"scanning {len(symbols)} symbols on {INTERVAL}...")
 
     plans: list[dict] = []
+    above_count = 0
+    sampled = 0
     failures = 0
 
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        futures = {pool.submit(scan_one, symbol, regime): symbol for symbol in symbols}
+        futures = {
+            pool.submit(scan_one, symbol, regime, context): symbol for symbol in symbols
+        }
         for future in as_completed(futures):
             symbol = futures[future]
             try:
-                plan = future.result()
+                plan, above = future.result()
             except Exception as exc:  # noqa: BLE001 - one bad symbol must not stop the scan
                 failures += 1
                 print(f"  {symbol:<12} failed: {exc}")
                 continue
+            if above is not None:
+                sampled += 1
+                above_count += 1 if above else 0
             if plan:
                 plans.append(plan)
+
+    breadth = above_count / sampled if sampled else None
+    if breadth is not None:
+        print(f"breadth: {breadth * 100:.0f}% of {sampled} symbols above their EMA200")
 
     state = load_state()
     plans.sort(key=lambda item: item["symbol"])
@@ -385,6 +443,7 @@ def main(argv: list[str]) -> int:
         plan["volume_usd"] = turnover.get(plan["symbol"][: -len("USDT")])
 
     found = 0
+    blocked = 0
 
     for plan in plans:
         symbol = plan["symbol"]
@@ -392,8 +451,27 @@ def main(argv: list[str]) -> int:
             print(f"  {symbol:<12} duplicate for {plan['candle']}, skipped")
             continue
 
+        # the market-wide and book-wide members vote here, because they need the
+        # finished scan and the open book rather than one symbol's frame
+        decision = committee.add_votes(
+            plan["committee"],
+            [
+                committee.breadth(breadth, plan["side"], committee.PARAMS),
+                committee.liquidity(plan["volume_usd"], MIN_TURNOVER_USD),
+                committee.exposure(book["open"], plan["side"], MAX_OPEN_TRADES),
+            ],
+        )
+        plan["decision"] = decision
+
+        if not decision["pass"]:
+            blocked += 1
+            why = "، ".join(b["name"] for b in decision["blockers"])
+            print(f"  {symbol:<12} BLOCKED by {why}")
+            continue
+
         found += 1
-        print(f"  {symbol:<12} SIGNAL {'LONG' if plan['side'] > 0 else 'SHORT'}")
+        print(f"  {symbol:<12} SIGNAL {'LONG' if plan['side'] > 0 else 'SHORT'}"
+              f" · committee {decision['approved']}/{len(decision['votes'])}")
 
         if do_send:
             anchors: dict[str, dict] = {}
@@ -425,10 +503,10 @@ def main(argv: list[str]) -> int:
             print(format_message(plan).replace("<b>", "").replace("</b>", ""))
 
     papertrade.save(book)
-    write_heartbeat(len(symbols), found, regime)
+    write_heartbeat(len(symbols), found, regime, blocked, breadth)
 
     print(
-        f"\nscan finished - {found} new signal(s), "
+        f"\nscan finished - {found} new signal(s), {blocked} blocked by the committee, "
         f"{len(symbols)} symbols checked, {failures} failed, "
         f"{len(closed)} paper trade(s) closed"
     )

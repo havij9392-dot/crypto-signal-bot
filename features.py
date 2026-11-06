@@ -42,6 +42,7 @@ def add_all(df: pd.DataFrame) -> pd.DataFrame:
     df["atr"] = _rma(df["tr"], 14)
     df["atr_pct"] = df["atr"] / close
     df["atr_rank"] = df["atr_pct"].rolling(100).rank(pct=True)
+    df["vol_sma20"] = volume.rolling(20).mean()
 
     # --- RSI ----------------------------------------------------------------
     delta = close.diff()

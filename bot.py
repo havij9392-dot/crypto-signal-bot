@@ -306,6 +306,9 @@ HELP_TEXT = (
     "بزرگ‌تر می‌شود.\n\n"
     "<b>📉 عملکرد</b> — کارنامه واقعی استراتژی روی سیگنال‌های ارسال‌شده. نتیجه هر معامله "
     "هم به شکل <b>ریپلای زیر همان پیام سیگنال</b> می‌آید.\n\n"
+    "<b>🏛 هیئت ورود</b> — قبل از هر سیگنال، پنج عضو هیئت رأی می‌دهند: قدرت روند (ADX)، "
+    "حجم، نوسان، گستردگی بازار و نقدشوندگی. هر عضو حق وتو دارد؛ اگر یکی مخالف باشد "
+    "سیگنال فرستاده نمی‌شود. دلایل هر رأی زیر خود سیگنال نوشته می‌شود.\n\n"
     "<b>🔔 سیگنال‌ها</b> — روشن یا خاموش کردن دریافت سیگنال.\n\n"
     "<b>⏰ زمان‌ها</b> — کندل ۴ ساعته روی ساعت ۰۰ / ۰۴ / ۰۸ / ۱۲ / ۱۶ / ۲۰ UTC بسته "
     "می‌شود، یعنی <b>۰۳:۳۰ / ۰۷:۳۰ / ۱۱:۳۰ / ۱۵:۳۰ / ۱۹:۳۰ / ۲۳:۳۰</b> به وقت تهران. "
@@ -405,7 +408,11 @@ def notify_owner(data: dict, text: str) -> None:
 
 
 def last_scan_line() -> str:
-    """How long ago the scanner last ran - so a dead scanner is visible in chat."""
+    """How long ago the scanner last ran, and what the committee did.
+
+    A quiet day is not the same as a dead bot: if the scan ran and the committee
+    turned everything down, that is worth seeing.
+    """
     try:
         with open(HEARTBEAT, encoding="utf-8") as handle:
             beat = json.load(handle)
@@ -418,9 +425,18 @@ def last_scan_line() -> str:
     minutes = int((datetime.now(timezone.utc) - when).total_seconds() // 60)
     if minutes < 0:
         minutes = 0
+
+    tally = ""
+    signals = int(beat.get("signals") or 0)
+    blocked = int(beat.get("blocked") or 0)
+    if signals or blocked:
+        tally = f" · {signals} سیگنال"
+        if blocked:
+            tally += f" · {blocked} رد شد"
+
     if minutes < 90:
-        return f"📡 آخرین اسکن: {minutes} دقیقه پیش"
-    return f"⚠️ آخرین اسکن: {minutes // 60} ساعت پیش — اسکن عقب است"
+        return f"📡 آخرین اسکن: {minutes} دقیقه پیش{tally}"
+    return f"⚠️ آخرین اسکن: {minutes // 60} ساعت پیش — اسکن عقب است{tally}"
 
 
 def render_home(user: dict, admin: bool) -> str:

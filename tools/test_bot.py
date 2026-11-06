@@ -450,4 +450,70 @@ sent.clear()
 scanner.announce_close(closed_trade, [], do_send=False)
 assert not sent, "a dry run must not send anything"
 
+print("\n--- entry committee ---")
+import numpy as np
+import pandas as pd
+
+import committee
+from features import add_all
+
+
+def trend_frame(step=1.003, amp_scale=1.0, volume=1000.0):
+    """A synthetic uptrend whose volatility breathes, so ATR rank is meaningful."""
+    n = 400
+    k = np.arange(n)
+    amp = (1.0 + 0.9 * np.sin(k / 9.0)) * amp_scale
+    close = 100 * np.power(step, k) + amp * np.where(k % 2 == 0, 0.5, -0.5)
+    return add_all(pd.DataFrame({
+        "open": close - 0.1, "high": close + amp, "low": close - amp,
+        "close": close, "volume": np.full(n, volume),
+    }))
+
+
+good = trend_frame()
+decision = committee.judge(good, 399, 1)
+assert decision["pass"], decision["votes"]
+assert decision["approved"] == 3, "a clean trend should carry every vote"
+print("   clean trend:", decision["approved"], "of", len(decision["votes"]), "approve")
+
+flat = trend_frame(step=1.0)
+blocked = committee.judge(flat, 399, 1)
+assert not blocked["pass"], "a flat market must be blocked"
+assert any(b["key"] == "adx" for b in blocked["blockers"]), blocked["blockers"]
+print("   flat market blocked by:", [b["name"] for b in blocked["blockers"]])
+
+quiet = trend_frame(volume=200.0)          # far below its own 20-bar average
+quiet["volume"] = 200.0
+quiet["vol_sma20"] = 1000.0
+blocked = committee.judge(quiet, 399, 1)
+assert any(b["key"] == "volume" for b in blocked["blockers"]), blocked["blockers"]
+print("   thin volume blocked by:", [b["name"] for b in blocked["blockers"]])
+
+wide = committee.add_votes(
+    decision,
+    [committee.breadth(0.20, 1, committee.PARAMS), committee.liquidity(50e6, 3e6)],
+)
+assert not wide["pass"], "a market where only 20% agree must not pass"
+assert wide["blockers"][0]["key"] == "breadth"
+print("   narrow breadth blocked by:", [b["name"] for b in wide["blockers"]])
+
+# the exposure guard: the sixth copy of the same bet
+open_book = [{"side": 1}] * 5
+assert committee.exposure(open_book, 1)["vote"] == committee.VETO
+assert committee.exposure(open_book, -1)["vote"] == committee.APPROVE
+print("   five longs open: a sixth long is refused, a short is allowed")
+
+rendered = scanner.format_message(
+    {
+        "symbol": "SOLUSDT", "side": 1, "price": 100.0, "stop_pct": 4.0,
+        "target_pct": 12.0, "rsi": 60.0, "candle": "2026-11-05 16:00",
+        "late": False, "max_lev": 10, "loss_at_max_lev": 40.0,
+        "volume_usd": 48e6, "decision": decision,
+    },
+    {"capital": 1000.0, "risk_pct": 1.0, "peak": 1000.0, "mode": "risk", "margin": 50.0},
+)
+assert "هیئت ورود" in rendered, "the message must show the committee"
+assert "قدرت روند" in rendered and "گستردگی" not in rendered
+print("   signal message carries the committee block")
+
 print("\nALL ASSERTIONS PASSED")

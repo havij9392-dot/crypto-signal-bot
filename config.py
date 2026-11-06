@@ -27,6 +27,8 @@ WORKERS = 10
 MAX_LEVERAGE = 10          # hard ceiling chosen by Amir
 LIQUIDATION_BUFFER = 80.0  # percent of the 100/leverage gap we are willing to use
 
+MAX_OPEN_TRADES = 6        # the exposure agent refuses past this many open trades
+
 PAPER_BANNER = "⚠️ حالت آزمایشی — این سیگنال هنوز با پول واقعی تأیید نشده"
 
 # ------------------------------------------------------------------ زمان‌ها
