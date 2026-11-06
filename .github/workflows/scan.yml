@@ -6,6 +6,19 @@ on:
     # Offset from :00/:30 so the scan and the bot listener do not fight for a
     # runner at the same minute.
     - cron: "5,35 * * * *"
+  # Without this a code change waits up to 30 minutes before it runs, and the
+  # old rules keep deciding trades in the meantime. A push that touches the
+  # signal path scans at once, with the new code.
+  push:
+    paths:
+      - "scanner.py"
+      - "committee.py"
+      - "features.py"
+      - "config.py"
+      - "strategies.py"
+      - "account.py"
+      - "notify.py"
+      - ".github/workflows/scan.yml"
   workflow_dispatch:
 
 permissions:
