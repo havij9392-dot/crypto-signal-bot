@@ -25,6 +25,54 @@
           "risk_usd": 97.98
         }
       }
+    },
+    {
+      "id": "LABUSDT@2026-11-05 20:00",
+      "symbol": "LABUSDT",
+      "side": -1,
+      "entry": 0.04089,
+      "stop_pct": 12.469409804178168,
+      "target_pct": 37.408229412534496,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 63,
+          "risk_usd": 97.98
+        }
+      }
+    },
+    {
+      "id": "XRPUSDT@2026-11-05 20:00",
+      "symbol": "XRPUSDT",
+      "side": -1,
+      "entry": 1.2066,
+      "stop_pct": 5.538373208899194,
+      "target_pct": 16.61511962669758,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 64,
+          "risk_usd": 97.98
+        }
+      }
+    },
+    {
+      "id": "ZROUSDT@2026-11-05 20:00",
+      "symbol": "ZROUSDT",
+      "side": -1,
+      "entry": 1.593,
+      "stop_pct": 12.98695676119015,
+      "target_pct": 38.96087028357044,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 65,
+          "risk_usd": 97.98
+        }
+      }
     }
   ],
   "closed": []
