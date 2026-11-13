@@ -27,22 +27,6 @@
       }
     },
     {
-      "id": "XRPUSDT@2026-11-05 20:00",
-      "symbol": "XRPUSDT",
-      "side": -1,
-      "entry": 1.2066,
-      "stop_pct": 5.538373208899194,
-      "target_pct": 16.61511962669758,
-      "opened": "2026-11-05 20:00",
-      "opened_at": "2026-11-06 00:59",
-      "recipients": {
-        "6090974409": {
-          "message_id": 64,
-          "risk_usd": 97.98
-        }
-      }
-    },
-    {
       "id": "ZROUSDT@2026-11-05 20:00",
       "symbol": "ZROUSDT",
       "side": -1,
@@ -112,6 +96,27 @@
       "closed_at": "2026-11-06 08:54",
       "reason": "stop",
       "r": -1.0
+    },
+    {
+      "id": "XRPUSDT@2026-11-05 20:00",
+      "symbol": "XRPUSDT",
+      "side": -1,
+      "entry": 1.2066,
+      "stop_pct": 5.538373208899194,
+      "target_pct": 16.61511962669758,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 64,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 1.006121966584267,
+      "closed": "2026-11-13 00:00",
+      "closed_at": "2026-11-13 04:56",
+      "reason": "target",
+      "r": 3.0
     }
   ]
 }
