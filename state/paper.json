@@ -31,22 +31,6 @@
           "risk_usd": 97.98
         }
       }
-    },
-    {
-      "id": "CASHCATUSDT@2026-11-06 04:00",
-      "symbol": "CASHCATUSDT",
-      "side": -1,
-      "entry": 0.09355,
-      "stop_pct": 17.423959435413902,
-      "target_pct": 52.2718783062417,
-      "opened": "2026-11-06 04:00",
-      "opened_at": "2026-11-06 08:54",
-      "recipients": {
-        "6090974409": {
-          "message_id": 68,
-          "risk_usd": 97.98
-        }
-      }
     }
   ],
   "closed": [
@@ -125,6 +109,27 @@
       "exit": 1891.1183260934135,
       "closed": "2026-11-14 00:00",
       "closed_at": "2026-11-14 04:50",
+      "reason": "target",
+      "r": 3.0
+    },
+    {
+      "id": "CASHCATUSDT@2026-11-06 04:00",
+      "symbol": "CASHCATUSDT",
+      "side": -1,
+      "entry": 0.09355,
+      "stop_pct": 17.423959435413902,
+      "target_pct": 52.2718783062417,
+      "opened": "2026-11-06 04:00",
+      "opened_at": "2026-11-06 08:54",
+      "recipients": {
+        "6090974409": {
+          "message_id": 68,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 0.04464965784451088,
+      "closed": "2026-11-14 12:00",
+      "closed_at": "2026-11-14 16:37",
       "reason": "target",
       "r": 3.0
     }
