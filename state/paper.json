@@ -1,16 +1,6 @@
 {
   "open": [
     {
-      "id": "ASTERUSDT@2026-11-05 16:00",
-      "symbol": "ASTERUSDT",
-      "side": -1,
-      "entry": 0.6946,
-      "stop_pct": 3.6550964793629612,
-      "target_pct": 10.965289438088883,
-      "opened": "2026-11-05 16:00",
-      "opened_at": "2026-11-05 20:47"
-    },
-    {
       "id": "MORPHOUSDT@2026-11-05 12:00",
       "symbol": "MORPHOUSDT",
       "side": -1,
@@ -57,22 +47,6 @@
           "risk_usd": 97.98
         }
       }
-    },
-    {
-      "id": "ETHUSDT@2026-11-06 04:00",
-      "symbol": "ETHUSDT",
-      "side": -1,
-      "entry": 2227.28,
-      "stop_pct": 5.030974610385563,
-      "target_pct": 15.092923831156691,
-      "opened": "2026-11-06 04:00",
-      "opened_at": "2026-11-06 08:54",
-      "recipients": {
-        "6090974409": {
-          "message_id": 69,
-          "risk_usd": 97.98
-        }
-      }
     }
   ],
   "closed": [
@@ -115,6 +89,42 @@
       "exit": 1.006121966584267,
       "closed": "2026-11-13 00:00",
       "closed_at": "2026-11-13 04:56",
+      "reason": "target",
+      "r": 3.0
+    },
+    {
+      "id": "ASTERUSDT@2026-11-05 16:00",
+      "symbol": "ASTERUSDT",
+      "side": -1,
+      "entry": 0.6946,
+      "stop_pct": 3.6550964793629612,
+      "target_pct": 10.965289438088883,
+      "opened": "2026-11-05 16:00",
+      "opened_at": "2026-11-05 20:47",
+      "exit": 0.6184350995630347,
+      "closed": "2026-11-14 00:00",
+      "closed_at": "2026-11-14 04:50",
+      "reason": "target",
+      "r": 3.0
+    },
+    {
+      "id": "ETHUSDT@2026-11-06 04:00",
+      "symbol": "ETHUSDT",
+      "side": -1,
+      "entry": 2227.28,
+      "stop_pct": 5.030974610385563,
+      "target_pct": 15.092923831156691,
+      "opened": "2026-11-06 04:00",
+      "opened_at": "2026-11-06 08:54",
+      "recipients": {
+        "6090974409": {
+          "message_id": 69,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 1891.1183260934135,
+      "closed": "2026-11-14 00:00",
+      "closed_at": "2026-11-14 04:50",
       "reason": "target",
       "r": 3.0
     }
