@@ -1,22 +1,6 @@
 {
   "open": [
     {
-      "id": "MORPHOUSDT@2026-11-05 12:00",
-      "symbol": "MORPHOUSDT",
-      "side": -1,
-      "entry": 2.1052,
-      "stop_pct": 8.174194090281224,
-      "target_pct": 24.522582270843678,
-      "opened": "2026-11-05 12:00",
-      "opened_at": "2026-11-05 23:43",
-      "recipients": {
-        "6090974409": {
-          "message_id": 62,
-          "risk_usd": 97.98
-        }
-      }
-    },
-    {
       "id": "ZROUSDT@2026-11-05 20:00",
       "symbol": "ZROUSDT",
       "side": -1,
@@ -132,6 +116,27 @@
       "closed_at": "2026-11-14 16:37",
       "reason": "target",
       "r": 3.0
+    },
+    {
+      "id": "MORPHOUSDT@2026-11-05 12:00",
+      "symbol": "MORPHOUSDT",
+      "side": -1,
+      "entry": 2.1052,
+      "stop_pct": 8.174194090281224,
+      "target_pct": 24.522582270843678,
+      "opened": "2026-11-05 12:00",
+      "opened_at": "2026-11-05 23:43",
+      "recipients": {
+        "6090974409": {
+          "message_id": 62,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 1.7367,
+      "closed": "2026-11-15 12:00",
+      "closed_at": "2026-11-15 16:39",
+      "reason": "timeout",
+      "r": 2.1414
     }
   ]
 }
