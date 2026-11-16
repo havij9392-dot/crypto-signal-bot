@@ -1,22 +1,5 @@
 {
-  "open": [
-    {
-      "id": "ZROUSDT@2026-11-05 20:00",
-      "symbol": "ZROUSDT",
-      "side": -1,
-      "entry": 1.593,
-      "stop_pct": 12.98695676119015,
-      "target_pct": 38.96087028357044,
-      "opened": "2026-11-05 20:00",
-      "opened_at": "2026-11-06 00:59",
-      "recipients": {
-        "6090974409": {
-          "message_id": 65,
-          "risk_usd": 97.98
-        }
-      }
-    }
-  ],
+  "open": [],
   "closed": [
     {
       "id": "LABUSDT@2026-11-05 20:00",
@@ -137,6 +120,27 @@
       "closed_at": "2026-11-15 16:39",
       "reason": "timeout",
       "r": 2.1414
+    },
+    {
+      "id": "ZROUSDT@2026-11-05 20:00",
+      "symbol": "ZROUSDT",
+      "side": -1,
+      "entry": 1.593,
+      "stop_pct": 12.98695676119015,
+      "target_pct": 38.96087028357044,
+      "opened": "2026-11-05 20:00",
+      "opened_at": "2026-11-06 00:59",
+      "recipients": {
+        "6090974409": {
+          "message_id": 65,
+          "risk_usd": 97.98
+        }
+      },
+      "exit": 1.4057,
+      "closed": "2026-11-15 20:00",
+      "closed_at": "2026-11-16 00:18",
+      "reason": "timeout",
+      "r": 0.9053
     }
   ]
 }
